@@ -220,6 +220,7 @@ struct DAG {
   }
 }
 
+/+
 void main()
 {
   auto TypeT = Type (`Type`);
@@ -247,4 +248,4 @@ void main()
   globalScope.execute (
     [Value (String, Variant ("construct")), inputArg]
   ).writeln;
-}
+}+/
