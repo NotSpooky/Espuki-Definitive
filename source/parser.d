@@ -1,20 +1,23 @@
 module parser;
 
 import std.conv;
+import std.range;
 
 struct Token {
   string strVal;
   enum Type {
     comma
     , dot
+    , minus
     , openingBracket
     , closingBracket
     , openingParenthesis
     , closingParenthesis
     , openingSquareBracket
     , closingSquareBracket
-    , stringLiteral
+    , floatLiteral
     , integerLiteral
+    , stringLiteral
     , singleQuotSymbol
     , identifier
   }
@@ -61,13 +64,16 @@ auto lex (string input) {
         case ']':
           type = closingSquareBracket;
           break;
+        case '-':
+          type = minus;
+          break;
         default:
           break;
       }
       if (!type.isNull ()) {
         // Was a single-character token.
         toRet ~= Token (input.front.to!string, type.get ());
-        input = input [1 .. $];
+        input.popFront ();
       } else {
         // Multi-character token.
         import std.regex;
@@ -76,8 +82,30 @@ auto lex (string input) {
           CTReg regexS;
           Token.Type type;
         }
+        if (input.front == '"') {
+          auto inputToUse = input [1..$];
+          while (true) {
+            if (inputToUse.startsWith (`\\`) || inputToUse.startsWith (`\"`)) {
+              //writeln (`Escaped token`);
+              inputToUse = inputToUse.drop (2);
+            } else if (inputToUse.empty) {
+              throw new Exception (`Reached end of line without closing string literal`);
+            } else if (inputToUse.front == '"') {
+              //writeln (`Finished string :D`);
+              auto len = input.length - inputToUse.length + 1;
+              toRet ~= Token (input [0 .. len], stringLiteral);
+              input = input.drop (len);
+              break;
+            } else {
+              //writeln (`Normal character: `, inputToUse.front);
+              // Single non-escaped character
+              inputToUse.popFront ();
+            }
+          }
+        }
         enum regexTypes = [
-          RegexType (ctRegex!`^[0-9]+`, comma)
+          RegexType (ctRegex!`^[0-9]+\.[0-9]+`, floatLiteral)
+          , RegexType (ctRegex!`^[0-9]+`, integerLiteral)
           , RegexType (ctRegex!`^[\w]+`, identifier)
         ];
         foreach (regType; regexTypes) {
@@ -97,5 +125,6 @@ auto lex (string input) {
 }
 
 void main () {
-  writeln (lex ("  , [ ] . . .. _owo, 1234"));
+  writeln (lex ("  , [ ] . . .. _owo, 1234 -23 1.03"));
+  writeln (lex (`hola "mundo" "uwu"`));
 }
