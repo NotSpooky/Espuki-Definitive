@@ -1,8 +1,10 @@
+module app;
+
 import std.stdio;
 import std.variant;
 import std.algorithm;
 import std.range;
-import std.conv : to;
+import std.conv : to, text;
 import std.typecons : Nullable, nullable;
 
 private uint lastTypeId;
@@ -62,10 +64,16 @@ struct Rule {
 }
 
 Type String;
+Type Identifier;
+Type I32;
+Type F32;
 static this () {
   String = Type (`String`);
+  Identifier = Type (`Identifier`);
+  auto I32 = Type (`I32`);
+  auto F32 = Type (`F32`);
 }
-struct Scope {
+struct RuleScope {
   @disable this ();
   Rule [] rules;
   this (Rule [] rules) {
@@ -80,7 +88,7 @@ struct Scope {
         auto ruleArg = pair [1];
         if (ruleArg.type == typeid (string)) {
           // In case of strings, make sure the value has the same string
-          return arg.type == String && arg.value.get!string == ruleArg.get!string;
+          return arg.type == Identifier && arg.value.get!string == ruleArg.get!string;
         } else {
           assert (ruleArg.type == typeid (Type));
           return arg.type == ruleArg.get!Type;
@@ -88,7 +96,7 @@ struct Scope {
       });
     }).array;
     if (validMatches.length == 0) {
-      stderr.writeln (`No valid rule for `, args);
+      stderr.writeln (`No valid rule in scope level for `, args);
       return ValueOrErr ();
     } else if (validMatches.length > 1) {
       stderr.writeln (
@@ -98,7 +106,7 @@ struct Scope {
       );
       return ValueOrErr ();
     }
-    return rules [0].execute (args);
+    return validMatches [0].execute (args);
   }
 }
 
@@ -109,122 +117,158 @@ struct Value {
     this.type = type;
     this.value = value;
   }
-  void toString (scope void delegate (const (char)[]) sink) {
+  void toString (
+    scope void delegate (const (char)[]) sink
+  ) {
     sink (type.name);
     sink (` `);
     sink (value.toString ());
   }
 }
 
-// OLD ESPUKI
-
-struct Connection {
-  BaseNode owner;
-  Edge * [] connectedTo;
-  @disable this ();
-  this (BaseNode owner, Edge * [] connectedTo) {
-    this.owner = owner;
-    this.connectedTo = connectedTo;
-  }
+struct IdentifierScope {
+  Value [string] vals;
 }
 
-struct TypedConnection {
-  BaseNode owner;
-  Edge * [] connectedTo;
-  Type type;
-  @disable this ();
-  this (BaseNode owner, Edge * [] connectedTo, Type type) {
-    this.owner = owner;
-    this.connectedTo = connectedTo;
-    this.type = type;
-  }
+string unescape (string toUnescape) {
+  stderr.writeln (`Note: unescape not implemented`);
+  return toUnescape;
 }
 
-class BaseNode {
-  TypedConnection [] inputs;
-  TypedConnection [] outputs;
-  @disable this ();
-  this (
-    TypedConnection [] inputs
-    , TypedConnection [] outputs
-  ) {
-    this.inputs = inputs;
-    this.outputs = outputs;
-  }
-  
-  auto inputNodes () {
-    return this.inputs.map!`a.connectedTo`.joiner.map!`a.input`.array;
-  }
-  auto filledInputPositions () {
-   return this.inputs
-    .enumerate
-    .filter! `a [1].connectedTo.length > 0`
-    .map!`a [0].to!uint`
-    .array;
-  }
-}
-
-struct Edge {
-  BaseNode input;
-  uint inputPos;
-  BaseNode output;
-  uint outputPos;
-  
-  private auto inO () {
-    auto toRet = input.outputs;
-    assert (toRet.length > inputPos);
-    return toRet [inputPos];
-  }
-
-  auto outType () {
-     return inO ().type;
-  }
-}
-
-struct DAG {
-  BaseNode [] inputNodes; // From outside.
-  BaseNode [] returnNodes; // Ditto.
-  BaseNode [] consumerNodes; // From inside.
-  auto toposort () {
-    BaseNode [] toProcess = consumerNodes ~ returnNodes.map!(to!BaseNode).array;
-    bool [Edge *] processedEdges;
-    Appender!(BaseNode []) toReturn;
-    while (toProcess != []) {
-      auto current = toProcess [0];
-      toProcess = toProcess [1..$];
-      toReturn ~= current;
-      foreach (inputEdge;
-        current
-        .inputs
-        .map!`a.connectedTo`
-        .joiner
-        .filter!((const inputEdge) => inputEdge !in processedEdges)
-      ) {
-        processedEdges [inputEdge] = true;
-        auto inputNode = inputEdge.input;
-        if (
-            inputNode
-            .outputs
-            .map!`a.connectedTo`
-            .joiner
-            .all!(a => a in processedEdges)
-           ) {
-          // Could remove the node's outputs from processedEdges
-          // but will probably make the algorithm slower for less
-          // memory usage.
-          toProcess ~= inputNode;
+void main () {
+  import parser;
+  auto asValueList (string line, IdentifierScope [] identifierScopes) {
+    identifierScopes ~= IdentifierScope ();
+    auto tokens = lex (line);
+    writeln (`Got as tokens `, tokens);
+    Appender! (Value []) toRet;
+    with (Token.Type) {
+      for (; !tokens.empty; tokens.popFront ()) {
+        auto token = tokens.front ();
+        auto strVal = token.strVal;
+        switch (token.type) {
+        /+
+        , openingBracket
+        , closingBracket
+        , openingParenthesis
+        , closingParenthesis
+        , openingSquareBracket
+        , closingSquareBracket
+        , stringLiteral
+        , singleQuotSymbol
+        +/
+          case comma:
+            throw new Exception (`Didn't expect a comma here`);
+          case dot:
+            throw new Exception (`Didn't expect a dot here`);
+          case minus:
+            tokens.popFront ();
+            if (tokens.empty) {
+              throw new Exception (`Didn't expect a minus at the end`);
+            } else {
+              auto front = tokens.front;
+              auto type = front.type;
+              if (type == integerLiteral) {
+                toRet ~= Value (
+                  I32, Variant (- front.strVal.to!int)
+                );
+              } else if (type == floatLiteral) {
+                toRet ~= Value (
+                  F32, Variant (- front.strVal.to!float)
+                );
+              } else {
+                throw new Exception (
+                  text (`Don't know what to do with a `, type, ` after a minus`)
+                );
+              }
+            }
+            break;
+          case integerLiteral:
+            toRet ~= Value (
+              I32, Variant (strVal.to!int)
+            );
+            break;
+          case floatLiteral:
+            toRet ~= Value (
+              F32, Variant (strVal.to!float)
+            );
+            break;
+          case identifier:
+            toRet ~= Value (
+              Identifier, Variant (strVal.unescape)
+            );
+            break;
+          default:
+            assert (0, `TODO: Parse ` ~ token.to!string);
         }
       }
     }
-    return toReturn.data;
+    return toRet.data;
   }
-}
 
-/+
-void main()
-{
+  ValueOrErr processLine (
+    string line
+    , IdentifierScope [] identifierScopes
+    , RuleScope [] ruleScopes
+  ) {
+    auto asVals = asValueList (line, identifierScopes);
+    writeln (`Got as value list `, asVals);
+    foreach_reverse (rules; ruleScopes) {
+      auto tried = rules.execute (asVals);
+      if (!tried.isNull ()) {
+        return tried;
+      }
+    }
+    return ValueOrErr ();
+  }
+
+  ValueOrErr processLines (
+    string [] lines
+    , IdentifierScope [] identifierScopes
+    , RuleScope [] ruleScopes
+  ) {
+    auto lastIdScope = IdentifierScope ();
+    foreach (line; lines) {
+      auto returned = processLine (line, identifierScopes ~ lastIdScope, ruleScopes);
+      if (returned.isNull ()) {
+        stderr.writeln (`Line `, line, ` errored :O`);
+        return returned;
+      } else {
+        lastIdScope = IdentifierScope (["_" : returned.get ()]);
+      }
+    }
+    return ValueOrErr (lastIdScope.vals ["_"]);
+  }
+
+  auto globalRules = RuleScope ([
+    Rule (
+      // Single int returns itself
+      [TypeOrString (I32)], (Value [] args) {
+        writeln (`First rule, got args `, args);
+        assert (args.length == 1);
+        return ValueOrErr (args [0]);
+      }
+    ), Rule (
+      // Example addition
+      [TypeOrString (I32), TypeOrString (`plus`), TypeOrString (I32)], (Value [] args) {
+        writeln (`Second rule, got args `, args);
+        assert (args.length == 3);
+        return ValueOrErr (
+          Value (I32, Variant (args [0].value.get!int () + args [2].value.get!int ()))
+        );
+      }
+    )
+  ]);
+  processLines (
+    [
+      `5 plus 4`
+    ], [
+    ], [
+      globalRules
+    ]
+  ).writeln;
+  /+
   auto TypeT = Type (`Type`);
-  auto I32 = Type (`I32`);
   auto Enum = CompositeType (2, `Enum`);
   auto exampleStruct = ["strField" : String, "intField" : I32];
   auto NameType = Enum.instance ([String, TypeT]);
@@ -236,7 +280,6 @@ void main()
       return ValueOrErr (Value (ExampleStruct, namedArgs));
     }
   );
-  auto globalScope = Scope ([construct]);
   auto strLiteral = Value (String, Variant ("Example string"));
   auto intLiteral = Value (I32, Variant (34));
   auto inputArg = Value (NameType, Variant (
@@ -248,4 +291,5 @@ void main()
   globalScope.execute (
     [Value (String, Variant ("construct")), inputArg]
   ).writeln;
-}+/
+  +/
+}

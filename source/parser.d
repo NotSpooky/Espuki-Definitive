@@ -75,6 +75,11 @@ auto lex (string input) {
         toRet ~= Token (input.front.to!string, type.get ());
         input.popFront ();
       } else {
+        if (input.startsWith (`//`)) {
+          // Might be better to strip comments in the caller
+          // Because we also need to check things such as \ at the end of line.
+          break;
+        }
         // Multi-character token.
         import std.regex;
         struct RegexType {
@@ -107,6 +112,7 @@ auto lex (string input) {
           RegexType (ctRegex!`^[0-9]+\.[0-9]+`, floatLiteral)
           , RegexType (ctRegex!`^[0-9]+`, integerLiteral)
           , RegexType (ctRegex!`^[\w]+`, identifier)
+          , RegexType (ctRegex!`^'[\w]+`, singleQuotSymbol)
         ];
         foreach (regType; regexTypes) {
           auto matched = input.matchFirst (regType.regexS);
@@ -124,7 +130,16 @@ auto lex (string input) {
   return toRet.data;
 }
 
+/+
+auto asValueList (string [] lines, IdentifierScope [] identifierScopes) {
+  auto localIdentifierScope = IdentifierScope ();
+  foreach (line; lines) {
+
+  }
+}+/
+
+/+
 void main () {
   writeln (lex ("  , [ ] . . .. _owo, 1234 -23 1.03"));
   writeln (lex (`hola "mundo" "uwu"`));
-}
+}+/
