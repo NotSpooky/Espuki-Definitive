@@ -138,7 +138,6 @@ string unescape (string toUnescape) {
 void main () {
   import parser;
   auto asValueList (string line, IdentifierScope [] identifierScopes) {
-    identifierScopes ~= IdentifierScope ();
     auto tokens = lex (line);
     writeln (`Got as tokens `, tokens);
     Appender! (Value []) toRet;
@@ -194,9 +193,23 @@ void main () {
             );
             break;
           case identifier:
-            toRet ~= Value (
-              Identifier, Variant (strVal.unescape)
-            );
+            // If there's a corresponding identifier in the scopes use that value
+            // else just return the identifier for later usage (e.g. rule name matching).
+            auto unescaped = strVal.unescape;
+            bool foundRef = false;
+            foreach_reverse (idScope; identifierScopes) {
+              auto referenced = unescaped in idScope.vals;
+              if (referenced != null) {
+                foundRef = true;
+                toRet ~= *referenced;
+                break;
+              }
+            }
+            if (!foundRef) {
+              toRet ~= Value (
+                Identifier, Variant (unescaped)
+              );
+            }
             break;
           default:
             assert (0, `TODO: Parse ` ~ token.to!string);
