@@ -135,124 +135,124 @@ string unescape (string toUnescape) {
   return toUnescape;
 }
 
-void main () {
-  import parser;
-  auto asValueList (string line, IdentifierScope [] identifierScopes) {
-    auto tokens = lex (line);
-    writeln (`Got as tokens `, tokens);
-    Appender! (Value []) toRet;
-    with (Token.Type) {
-      for (; !tokens.empty; tokens.popFront ()) {
-        auto token = tokens.front ();
-        auto strVal = token.strVal;
-        switch (token.type) {
-        /+
-        , openingBracket
-        , closingBracket
-        , openingParenthesis
-        , closingParenthesis
-        , openingSquareBracket
-        , closingSquareBracket
-        , stringLiteral
-        , singleQuotSymbol
-        +/
-          case comma:
-            throw new Exception (`Didn't expect a comma here`);
-          case dot:
-            throw new Exception (`Didn't expect a dot here`);
-          case minus:
-            tokens.popFront ();
-            if (tokens.empty) {
-              throw new Exception (`Didn't expect a minus at the end`);
-            } else {
-              auto front = tokens.front;
-              auto type = front.type;
-              if (type == integerLiteral) {
-                toRet ~= Value (
-                  I32, Variant (- front.strVal.to!int)
-                );
-              } else if (type == floatLiteral) {
-                toRet ~= Value (
-                  F32, Variant (- front.strVal.to!float)
-                );
-              } else {
-                throw new Exception (
-                  text (`Don't know what to do with a `, type, ` after a minus`)
-                );
-              }
-            }
-            break;
-          case integerLiteral:
-            toRet ~= Value (
-              I32, Variant (strVal.to!int)
-            );
-            break;
-          case floatLiteral:
-            toRet ~= Value (
-              F32, Variant (strVal.to!float)
-            );
-            break;
-          case identifier:
-            // If there's a corresponding identifier in the scopes use that value
-            // else just return the identifier for later usage (e.g. rule name matching).
-            auto unescaped = strVal.unescape;
-            bool foundRef = false;
-            foreach_reverse (idScope; identifierScopes) {
-              auto referenced = unescaped in idScope.vals;
-              if (referenced != null) {
-                foundRef = true;
-                toRet ~= *referenced;
-                break;
-              }
-            }
-            if (!foundRef) {
+import parser;
+auto asValueList (string line, IdentifierScope [] identifierScopes) {
+  auto tokens = lex (line);
+  writeln (`Got as tokens `, tokens);
+  Appender! (Value []) toRet;
+  with (Token.Type) {
+    for (; !tokens.empty; tokens.popFront ()) {
+      auto token = tokens.front ();
+      auto strVal = token.strVal;
+      switch (token.type) {
+      /+
+      , openingBracket
+      , closingBracket
+      , openingParenthesis
+      , closingParenthesis
+      , openingSquareBracket
+      , closingSquareBracket
+      , stringLiteral
+      , singleQuotSymbol
+      +/
+        case comma:
+          throw new Exception (`Didn't expect a comma here`);
+        case dot:
+          throw new Exception (`Didn't expect a dot here`);
+        case minus:
+          tokens.popFront ();
+          if (tokens.empty) {
+            throw new Exception (`Didn't expect a minus at the end`);
+          } else {
+            auto front = tokens.front;
+            auto type = front.type;
+            if (type == integerLiteral) {
               toRet ~= Value (
-                Identifier, Variant (unescaped)
+                I32, Variant (- front.strVal.to!int)
+              );
+            } else if (type == floatLiteral) {
+              toRet ~= Value (
+                F32, Variant (- front.strVal.to!float)
+              );
+            } else {
+              throw new Exception (
+                text (`Don't know what to do with a `, type, ` after a minus`)
               );
             }
-            break;
-          default:
-            assert (0, `TODO: Parse ` ~ token.to!string);
-        }
+          }
+          break;
+        case integerLiteral:
+          toRet ~= Value (
+            I32, Variant (strVal.to!int)
+          );
+          break;
+        case floatLiteral:
+          toRet ~= Value (
+            F32, Variant (strVal.to!float)
+          );
+          break;
+        case identifier:
+          // If there's a corresponding identifier in the scopes use that value
+          // else just return the identifier for later usage (e.g. rule name matching).
+          auto unescaped = strVal.unescape;
+          bool foundRef = false;
+          foreach_reverse (idScope; identifierScopes) {
+            auto referenced = unescaped in idScope.vals;
+            if (referenced != null) {
+              foundRef = true;
+              toRet ~= *referenced;
+              break;
+            }
+          }
+          if (!foundRef) {
+            toRet ~= Value (
+              Identifier, Variant (unescaped)
+            );
+          }
+          break;
+        default:
+          assert (0, `TODO: Parse ` ~ token.to!string);
       }
     }
-    return toRet.data;
   }
+  return toRet.data;
+}
 
-  ValueOrErr processLine (
+ValueOrErr processLine (
     string line
     , IdentifierScope [] identifierScopes
     , RuleScope [] ruleScopes
-  ) {
-    auto asVals = asValueList (line, identifierScopes);
-    writeln (`Got as value list `, asVals);
-    foreach_reverse (rules; ruleScopes) {
-      auto tried = rules.execute (asVals);
-      if (!tried.isNull ()) {
-        return tried;
-      }
+    ) {
+  auto asVals = asValueList (line, identifierScopes);
+  writeln (`Got as value list `, asVals);
+  foreach_reverse (rules; ruleScopes) {
+    auto tried = rules.execute (asVals);
+    if (!tried.isNull ()) {
+      return tried;
     }
-    return ValueOrErr ();
   }
+  return ValueOrErr ();
+}
 
-  ValueOrErr processLines (
-    string [] lines
-    , IdentifierScope [] identifierScopes
-    , RuleScope [] ruleScopes
-  ) {
-    auto lastIdScope = IdentifierScope ();
-    foreach (line; lines) {
-      auto returned = processLine (line, identifierScopes ~ lastIdScope, ruleScopes);
-      if (returned.isNull ()) {
-        stderr.writeln (`Line `, line, ` errored :O`);
-        return returned;
-      } else {
-        lastIdScope = IdentifierScope (["_" : returned.get ()]);
-      }
+ValueOrErr processLines (
+  string [] lines
+  , IdentifierScope [] identifierScopes
+  , RuleScope [] ruleScopes
+) {
+  auto lastIdScope = IdentifierScope ();
+  foreach (line; lines) {
+    auto returned = processLine (line, identifierScopes ~ lastIdScope, ruleScopes);
+    if (returned.isNull ()) {
+      stderr.writeln (`Line `, line, ` errored :O`);
+      return returned;
+    } else {
+      lastIdScope = IdentifierScope (["_" : returned.get ()]);
     }
-    return ValueOrErr (lastIdScope.vals ["_"]);
   }
+  return ValueOrErr (lastIdScope.vals ["_"]);
+}
 
+void main () {
   auto globalRules = RuleScope ([
     Rule (
       // Single int returns itself
@@ -274,7 +274,8 @@ void main () {
   ]);
   processLines (
     [
-      `5 plus 4`
+      `5`
+      , `_ plus 4`
     ], [
     ], [
       globalRules
