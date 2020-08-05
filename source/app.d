@@ -273,10 +273,8 @@ void main () {
     )
   ]);
   processLines (
-    [
-      `5`
-      , `_ plus 4`
-    ], [
+    File (`example.es`).byLineCopy().array
+    , [
     ], [
       globalRules
     ]
