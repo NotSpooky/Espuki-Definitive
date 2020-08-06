@@ -218,7 +218,6 @@ TokenListR getTokens (R)(
     auto tokens = lexed.tokens;
     // Ignore empty lines.
     if (tokens.empty) {
-      lines.popFront ();
       continue;
     }
     // Lines ending with backslash are concatenated to the next one
