@@ -1,2 +1,4 @@
 5
-_ plus 3
+plus _ 3
+plus _ 4
+plus _ _

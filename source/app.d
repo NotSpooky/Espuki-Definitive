@@ -58,21 +58,13 @@ struct Rule {
   // Can assume that execute has correct arg types.
   ApplyFun execute;
   this (TypeOrString [] args, ApplyFun execute) {
+    assert (args.length > 0, `Rule with no args`);
     this.args = args;
     this.execute = execute;
   }
 }
 
-Type String;
-Type Identifier;
-Type I32;
-Type F32;
-static this () {
-  String = Type (`String`);
-  Identifier = Type (`Identifier`);
-  auto I32 = Type (`I32`);
-  auto F32 = Type (`F32`);
-}
+import intrinsics;
 struct RuleScope {
   @disable this ();
   Rule [] rules;
@@ -253,6 +245,7 @@ ValueOrErr processLines (
 }
 
 void main () {
+  /+
   auto globalRules = RuleScope ([
     Rule (
       // Single int returns itself
@@ -272,11 +265,13 @@ void main () {
       }
     )
   ]);
+  +/
+  assert (globalRules != null);
   processLines (
     File (`example.es`).byLineCopy().array
     , [
     ], [
-      globalRules
+      * globalRules
     ]
   ).writeln;
   /+
