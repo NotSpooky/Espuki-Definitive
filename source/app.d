@@ -124,7 +124,6 @@ struct IdentifierScope {
 
 import parser;
 auto asValueList (Token [] tokens, IdentifierScope [] identifierScopes) {
-  writeln (`Got as tokens `, tokens);
   Appender! (Value []) toRet;
   with (Token.Type) {
     for (; !tokens.empty; tokens.popFront ()) {
@@ -212,7 +211,11 @@ TokenListR getTokens (R)(
   Appender!(Token [][]) currentLineTokens;
   for (; !lines.empty; lines.popFront) {
     auto line = lines.front;
-    auto tokens = lex (line, inAsteriskComment, plusCommentDepth).tokens;
+    writeln (`Lexing line `, line);
+    auto lexed = lex (line, inAsteriskComment, plusCommentDepth);
+    inAsteriskComment = lexed.inAsteriskComment;
+    plusCommentDepth = lexed.plusCommentDepth;
+    auto tokens = lexed.tokens;
     // Ignore empty lines.
     if (tokens.empty) {
       lines.popFront ();
@@ -238,6 +241,7 @@ TokenListR getTokens (R)(
       currentLineTokens ~= tokens;
     }
   }
+  writeln (`Finished getTokens`);
   return TokenListR (currentLineTokens.data);
 }
 
@@ -249,8 +253,11 @@ ValueOrErr processLines (R)(
   auto lastIdScope = IdentifierScope ();
   auto tokenLineRange = getTokens (lines, false, 0);
   if (tokenLineRange.isNull ()) {
+    stderr.writeln (`Error getting tokens :( `);
     return ValueOrErr ();
   }
+
+  writeln (`Got tokens : `, tokenLineRange);
   foreach (tokenLine; tokenLineRange.get ()) {
     auto asVals = asValueList (tokenLine, identifierScopes);
     writeln (`Got as value list `, asVals);

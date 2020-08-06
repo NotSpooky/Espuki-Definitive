@@ -42,8 +42,21 @@ struct LexedLineInfo {
   }
   @disable this ();
 }
-// Ignores comments.
+
+import std.algorithm;
 auto lex (string input, bool inAsteriskComment, uint plusCommentDepth) {
+
+  if (inAsteriskComment) {
+    assert (
+      plusCommentDepth == 0
+      , `Shouldn't be in 2 comment types at the same time`
+    );
+    input.findSkip (`*/`);
+    if (input.empty) {
+      return LexedLineInfo ([], true, 0);
+    }
+  }
+
   import std.array;
   import std.typecons;
   import std.string;
@@ -95,6 +108,16 @@ auto lex (string input, bool inAsteriskComment, uint plusCommentDepth) {
           // Might be better to strip comments in the caller
           // Because we also need to check things such as \ at the end of line.
           break;
+        } else if (input.startsWith (`/*`)) {
+          auto following = input [2..$];
+          following.findSkip (`*/`);
+          if (following.empty) {
+            // Comment doesn't end on this line.
+            return LexedLineInfo (toRet.data, true, 0);
+          } else {
+            input = following;
+            continue;
+          }
         }
         // Multi-character token.
         import std.regex;
