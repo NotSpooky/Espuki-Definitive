@@ -122,14 +122,8 @@ struct IdentifierScope {
   Value [string] vals;
 }
 
-string unescape (string toUnescape) {
-  stderr.writeln (`Note: unescape not implemented`);
-  return toUnescape;
-}
-
 import parser;
-auto asValueList (string line, IdentifierScope [] identifierScopes) {
-  auto tokens = lex (line);
+auto asValueList (Token [] tokens, IdentifierScope [] identifierScopes) {
   writeln (`Got as tokens `, tokens);
   Appender! (Value []) toRet;
   with (Token.Type) {
@@ -186,10 +180,9 @@ auto asValueList (string line, IdentifierScope [] identifierScopes) {
         case identifier:
           // If there's a corresponding identifier in the scopes use that value
           // else just return the identifier for later usage (e.g. rule name matching).
-          auto unescaped = strVal.unescape;
           bool foundRef = false;
           foreach_reverse (idScope; identifierScopes) {
-            auto referenced = unescaped in idScope.vals;
+            auto referenced = strVal in idScope.vals;
             if (referenced != null) {
               foundRef = true;
               toRet ~= *referenced;
@@ -198,7 +191,7 @@ auto asValueList (string line, IdentifierScope [] identifierScopes) {
           }
           if (!foundRef) {
             toRet ~= Value (
-              Identifier, Variant (unescaped)
+              Identifier, Variant (strVal)
             );
           }
           break;
@@ -210,35 +203,69 @@ auto asValueList (string line, IdentifierScope [] identifierScopes) {
   return toRet.data;
 }
 
-ValueOrErr processLine (
-    string line
-    , IdentifierScope [] identifierScopes
-    , RuleScope [] ruleScopes
-    ) {
-  auto asVals = asValueList (line, identifierScopes);
-  writeln (`Got as value list `, asVals);
-  foreach_reverse (rules; ruleScopes) {
-    auto tried = rules.execute (asVals);
-    if (!tried.isNull ()) {
-      return tried;
+alias TokenListR = Nullable! (Token [][]);
+TokenListR getTokens (R)(
+  R lines
+  , bool inAsteriskComment
+  , uint plusCommentDepth
+) {
+  Appender!(Token [][]) currentLineTokens;
+  for (; !lines.empty; lines.popFront) {
+    auto line = lines.front;
+    auto tokens = lex (line, inAsteriskComment, plusCommentDepth).tokens;
+    // Ignore empty lines.
+    if (tokens.empty) {
+      lines.popFront ();
+      continue;
+    }
+    // Lines ending with backslash are concatenated to the next one
+    if (tokens [$-1].type == Token.Type.backslash) {
+      lines.popFront ();
+      auto following = getTokens (lines, inAsteriskComment, plusCommentDepth);
+      if (following.empty) {
+        stderr.writeln (`Expected another line after '\'`);
+        return Nullable! (Token [][]) ();
+      } else if (following.isNull ()) {
+        return following;
+      } else {
+        return TokenListR (
+          currentLineTokens.data
+            ~ [tokens [0..$-1] ~ following [0]]
+            ~ following [1..$]
+        );
+      }
+    } else {
+      currentLineTokens ~= tokens;
     }
   }
-  return ValueOrErr ();
+  return TokenListR (currentLineTokens.data);
 }
 
-ValueOrErr processLines (
-  string [] lines
+ValueOrErr processLines (R)(
+  R lines
   , IdentifierScope [] identifierScopes
   , RuleScope [] ruleScopes
 ) {
   auto lastIdScope = IdentifierScope ();
-  foreach (line; lines) {
-    auto returned = processLine (line, identifierScopes ~ lastIdScope, ruleScopes);
-    if (returned.isNull ()) {
-      stderr.writeln (`Line `, line, ` errored :O`);
-      return returned;
-    } else {
-      lastIdScope = IdentifierScope (["_" : returned.get ()]);
+  auto tokenLineRange = getTokens (lines, false, 0);
+  if (tokenLineRange.isNull ()) {
+    return ValueOrErr ();
+  }
+  foreach (tokenLine; tokenLineRange.get ()) {
+    auto asVals = asValueList (tokenLine, identifierScopes);
+    writeln (`Got as value list `, asVals);
+    bool foundRule = false;
+    foreach_reverse (rules; ruleScopes) {
+      auto tried = rules.execute (asVals);
+      if (!tried.isNull ()) {
+        lastIdScope = IdentifierScope (["_" : tried.get ()]);
+        foundRule = true;
+        break;
+      } 
+    }
+    if (!foundRule) {
+      stderr.writeln (`No rule found :(`);
+      return ValueOrErr ();
     }
   }
   return ValueOrErr (lastIdScope.vals ["_"]);
@@ -268,35 +295,10 @@ void main () {
   +/
   assert (globalRules != null);
   processLines (
-    File (`example.es`).byLineCopy().array
+    File (`example.es`).byLineCopy()
     , [
     ], [
       * globalRules
     ]
   ).writeln;
-  /+
-  auto TypeT = Type (`Type`);
-  auto Enum = CompositeType (2, `Enum`);
-  auto exampleStruct = ["strField" : String, "intField" : I32];
-  auto NameType = Enum.instance ([String, TypeT]);
-  auto ExampleStruct = Type (`ExampleStruct`);
-  auto construct = Rule (
-    [TypeOrString ("construct"), TypeOrString (NameType)]
-    , (Value [] args){
-      auto namedArgs = args [1].value;
-      return ValueOrErr (Value (ExampleStruct, namedArgs));
-    }
-  );
-  auto strLiteral = Value (String, Variant ("Example string"));
-  auto intLiteral = Value (I32, Variant (34));
-  auto inputArg = Value (NameType, Variant (
-    [
-      Value (String, Variant ("strField")) : strLiteral
-      , Value (String, Variant ("intField")) : intLiteral
-    ]
-  ));
-  globalScope.execute (
-    [Value (String, Variant ("construct")), inputArg]
-  ).writeln;
-  +/
 }

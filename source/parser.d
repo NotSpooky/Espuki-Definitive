@@ -20,14 +20,30 @@ struct Token {
     , stringLiteral
     , singleQuotSymbol
     , identifier
+    , backslash
   }
   Type type;
 }
 
 debug import std.stdio;
 
+struct LexedLineInfo {
+  Token [] tokens;
+  bool inAsteriskComment;
+  uint plusCommentDepth;
+  this (
+    Token [] tokens
+    , bool inAsteriskComment
+    , uint plusCommentDepth
+  ) {
+    this.tokens = tokens;
+    this.inAsteriskComment = inAsteriskComment;
+    this.plusCommentDepth = plusCommentDepth;
+  }
+  @disable this ();
+}
 // Ignores comments.
-auto lex (string input) {
+auto lex (string input, bool inAsteriskComment, uint plusCommentDepth) {
   import std.array;
   import std.typecons;
   import std.string;
@@ -113,6 +129,7 @@ auto lex (string input) {
           , RegexType (ctRegex!`^[0-9]+`, integerLiteral)
           , RegexType (ctRegex!`^[\w]+`, identifier)
           , RegexType (ctRegex!`^'[\w]+`, singleQuotSymbol)
+          , RegexType (ctRegex!`^\\`, backslash)
         ];
         foreach (regType; regexTypes) {
           auto matched = input.matchFirst (regType.regexS);
@@ -122,21 +139,12 @@ auto lex (string input) {
             input = input [matchedStr.length .. $];
             break;
           }
-        //assert (0, `TODO`);
         }
       }
     }
   }
-  return toRet.data;
+  return LexedLineInfo (toRet.data, false, 0);
 }
-
-/+
-auto asValueList (string [] lines, IdentifierScope [] identifierScopes) {
-  auto localIdentifierScope = IdentifierScope ();
-  foreach (line; lines) {
-
-  }
-}+/
 
 /+
 void main () {

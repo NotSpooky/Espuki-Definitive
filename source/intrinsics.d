@@ -19,8 +19,10 @@ static this () {
     , identity (F32)
     , fromD!plus
   ]);
+  /+
   import std.stdio;
   writeln (`Made global rules: `, *globalRules);
+  +/
 }
 
 extern (C) {
