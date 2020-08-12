@@ -28,25 +28,29 @@ struct Token {
 debug import std.stdio;
 
 import std.typecons;
-alias LexRet = Nullable!(Token [][]);
+alias LexRet = Nullable! (Token [][]);
 import std.algorithm;
 // Mutable mess :)
-auto lex (R)(R inputLines) {
-  Appender!(Token [][]) toRet;
+// Absolutely not proud of this function.
+auto lex (R)(ref R inputLines) {
+  Appender! (Token [][]) toRet;
   // Outside the loop as output lines might not have a 1:1 relationship with
   // input lines in cases such as empty/commented lines or '\' at the end of
   // a line.
-  Appender!(Token []) currentLineTokens;
+  Appender! (Token []) currentLineTokens;
   bool inAsteriskComment = false;
   uint plusCommentDepth = 0;
 
   import std.array;
   import std.string;
 
-  lexLine: // Might be better to include popFront here.
+  // Note: Jumping to this label doesn't execute a popFront at the start.
+  lexLine:
   for (; !inputLines.empty; inputLines.popFront) {
     auto line = inputLines.front;
+    continueLine:
     writeln ("\tLexing line ", line);
+    writeln (`plusCommentDepth `, plusCommentDepth);
 
     if (inAsteriskComment) {
       assert (
@@ -58,6 +62,31 @@ auto lex (R)(R inputLines) {
       } else {
         // Comment didn't finish on this line.
         continue;
+      }
+    } else if (plusCommentDepth > 0) {
+      while (true) {
+        if (line.startsWith (`+/`) || line.startsWith (`/+`)) {
+          assert (line.length >= 2);
+          writeln (`Found nested comment boundary: `, line [0..2]);
+          if (line.front == '+') {
+            plusCommentDepth --;
+            line = line [2..$];
+            if (plusCommentDepth == 0) {
+              goto continueLine;
+            }
+          } else {
+            assert (line.front == '/');
+            plusCommentDepth ++;
+            line = line [2..$];
+          }
+        } else if (line.empty) {
+          // Comment didn't finish on this line.
+          inputLines.popFront ();
+          goto lexLine;
+        } else {
+          // Didn't match boundary: still in comment.
+          line.popFront;
+        }
       }
     }
     while (!line.empty) {
@@ -110,19 +139,12 @@ auto lex (R)(R inputLines) {
             break;
           } else if (line.startsWith (`/*`)) {
             inAsteriskComment = true;
-            auto toReposition = line [2..$].countUntil (`*/`);
-            if (toReposition >= 0) {
-              inAsteriskComment = false;
-              line = line [toReposition + `/**/`.length .. $]; 
-              continue;
-            } else {
-              // Comment doesn't end on this line.
-              inputLines.popFront ();
-              goto lexLine;
-            }
+            line = line [2..$];
+            goto continueLine;
           } else if (line.startsWith (`/+`)) {
             plusCommentDepth ++;
-            assert (0, `TODO: Nestable comments`);
+            line = line [2..$];
+            goto continueLine;
           }
           // Multi-character token.
           import std.regex;
@@ -159,14 +181,20 @@ auto lex (R)(R inputLines) {
             , RegexType (ctRegex!`^'[\w]+`, singleQuotSymbol)
             , RegexType (ctRegex!`^\\`, backslash)
           ];
+          bool foundMatchingRegex = false;
           foreach (regType; regexTypes) {
             auto matched = line.matchFirst (regType.regexS);
             if (!matched.empty) {
+              foundMatchingRegex = true;
               auto matchedStr = matched.front;
               currentLineTokens ~= Token (matchedStr, regType.type);
               line = line [matchedStr.length .. $];
               break;
             }
+          }
+          if (!foundMatchingRegex) {
+            stderr.writeln (`Couldn't lex `, line);
+            return LexRet ();
           }
         }
       }
