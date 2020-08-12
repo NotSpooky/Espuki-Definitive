@@ -203,46 +203,6 @@ auto asValueList (Token [] tokens, IdentifierScope [] identifierScopes) {
 }
 
 alias TokenListR = Nullable! (Token [][]);
-TokenListR getTokens (R)(
-  R lines
-  , bool inAsteriskComment
-  , uint plusCommentDepth
-) {
-  Appender!(Token [][]) currentLineTokens;
-  for (; !lines.empty; lines.popFront) {
-    auto line = lines.front;
-    writeln (`Lexing line `, line);
-    auto lexed = lex (line, inAsteriskComment, plusCommentDepth);
-    inAsteriskComment = lexed.inAsteriskComment;
-    plusCommentDepth = lexed.plusCommentDepth;
-    auto tokens = lexed.tokens;
-    // Ignore empty lines.
-    if (tokens.empty) {
-      continue;
-    }
-    // Lines ending with backslash are concatenated to the next one
-    if (tokens [$-1].type == Token.Type.backslash) {
-      lines.popFront ();
-      auto following = getTokens (lines, inAsteriskComment, plusCommentDepth);
-      if (following.empty) {
-        stderr.writeln (`Expected another line after '\'`);
-        return Nullable! (Token [][]) ();
-      } else if (following.isNull ()) {
-        return following;
-      } else {
-        return TokenListR (
-          currentLineTokens.data
-            ~ [tokens [0..$-1] ~ following [0]]
-            ~ following [1..$]
-        );
-      }
-    } else {
-      currentLineTokens ~= tokens;
-    }
-  }
-  writeln (`Finished getTokens`);
-  return TokenListR (currentLineTokens.data);
-}
 
 ValueOrErr processLines (R)(
   R lines
@@ -250,13 +210,13 @@ ValueOrErr processLines (R)(
   , RuleScope [] ruleScopes
 ) {
   auto lastIdScope = IdentifierScope ();
-  auto tokenLineRange = getTokens (lines, false, 0);
+  auto tokenLineRange = lex (lines);
+  //writeln (`Got tokens: `, tokenLineRange);
   if (tokenLineRange.isNull ()) {
     stderr.writeln (`Error getting tokens :( `);
     return ValueOrErr ();
   }
 
-  writeln (`Got tokens : `, tokenLineRange);
   foreach (tokenLine; tokenLineRange.get ()) {
     auto asVals = asValueList (tokenLine, identifierScopes);
     writeln (`Got as value list `, asVals);
@@ -278,27 +238,6 @@ ValueOrErr processLines (R)(
 }
 
 void main () {
-  /+
-  auto globalRules = RuleScope ([
-    Rule (
-      // Single int returns itself
-      [TypeOrString (I32)], (Value [] args) {
-        writeln (`First rule, got args `, args);
-        assert (args.length == 1);
-        return ValueOrErr (args [0]);
-      }
-    ), Rule (
-      // Example addition
-      [TypeOrString (I32), TypeOrString (`plus`), TypeOrString (I32)], (Value [] args) {
-        writeln (`Second rule, got args `, args);
-        assert (args.length == 3);
-        return ValueOrErr (
-          Value (I32, Variant (args [0].value.get!int () + args [2].value.get!int ()))
-        );
-      }
-    )
-  ]);
-  +/
   assert (globalRules != null);
   processLines (
     File (`example.es`).byLineCopy()
