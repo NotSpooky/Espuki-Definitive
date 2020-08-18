@@ -20,7 +20,7 @@ struct Token {
     , stringLiteral
     , singleQuotSymbol
     , identifier
-    , semicolon // Handled internally
+    , underscoreReference
     , backslash // Handled internally
   }
   Type type;
@@ -34,6 +34,7 @@ alias TokenAppender = Appender! (Token []);
 import std.algorithm;
 // Mutable mess :)
 // Absolutely not proud of this function.
+// DO NOT LOOK AT THIS, IT WILL SMELL AND TASTE LIKE SPAGUETTI BECAUSE IT IS
 auto lex (R)(ref R inputLines) {
   Appender! (Token [][]) toRet;
   // Outside the loop as output lines might not have a 1:1 relationship with
@@ -161,8 +162,12 @@ auto lex (R)(ref R inputLines) {
           // Multi-character token.
           import std.regex;
           struct RegexType {
-            alias CTReg = typeof (ctRegex!``);
-            CTReg regexS;
+            version (release) {
+              alias Reg = typeof (ctRegex!``);
+            } else {
+              alias Reg = typeof (regex (``));
+            }
+            Reg regexS;
             Token.Type type;
           }
           if (line.front == '"') {
@@ -186,12 +191,20 @@ auto lex (R)(ref R inputLines) {
               }
             }
           }
+          auto reg (string pattern) () {
+            version (release) {
+              return ctRegex!pattern;
+            } else {
+              return regex (pattern);
+            }
+          }
           enum regexTypes = [
-            RegexType (ctRegex!`^[0-9]+\.[0-9]+`, floatLiteral)
-            , RegexType (ctRegex!`^[0-9]+`, integerLiteral)
-            , RegexType (ctRegex!`^[\w]+`, identifier)
-            , RegexType (ctRegex!`^'[\w]+`, singleQuotSymbol)
-            , RegexType (ctRegex!`^\\`, backslash) // Might be better to handle above
+            RegexType (reg!`^[0-9]+\.[0-9]+`, floatLiteral)
+            , RegexType (reg!`^[0-9]+`, integerLiteral)
+            , RegexType (reg!`^_[0-9]*`, underscoreReference)
+            , RegexType (reg!`^[\w]+`, identifier)
+            , RegexType (reg!`^'[\w]+`, singleQuotSymbol)
+            , RegexType (reg!`^\\`, backslash) // Might be better to handle above
           ];
           bool foundMatchingRegex = false;
           foreach (regType; regexTypes) {

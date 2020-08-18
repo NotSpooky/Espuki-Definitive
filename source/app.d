@@ -73,9 +73,11 @@ struct RuleScope {
   }
 
   ValueOrErr execute (Value [] args) {
-    auto validMatches = rules.filter!((rule) {
+    writeln (`Got as valid rules `, rules);
+    writeln (`Got as args `, args);
+    auto validMatches = rules.filter! ((rule) {
       if (rule.args.length != args.length) return false;
-      return args.zip (rule.args).all!((pair) {
+      return args.zip (rule.args).all! ((pair) {
         auto arg = pair [0];
         auto ruleArg = pair [1];
         if (ruleArg.type == typeid (string)) {
@@ -217,10 +219,9 @@ ValueOrErr processLines (R)(
     return ValueOrErr ();
   }
 
-  writeln (tokenLineRange);
+  writeln (`Token line range `, tokenLineRange);
   foreach (tokenLine; tokenLineRange.get ()) {
     auto asVals = asValueList (tokenLine, identifierScopes);
-    writeln (`Got as value list `, asVals);
     bool foundRule = false;
     foreach_reverse (rules; ruleScopes) {
       auto tried = rules.execute (asVals);
