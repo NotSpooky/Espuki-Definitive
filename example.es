@@ -6,4 +6,4 @@ plus _ 4 */
 /+ Nestable comment :D +/
 /+ Now /+ going +/
  another level deep +/
-plus _ _
+plus _ 2 ; plus _ _

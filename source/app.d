@@ -217,6 +217,7 @@ ValueOrErr processLines (R)(
     return ValueOrErr ();
   }
 
+  writeln (tokenLineRange);
   foreach (tokenLine; tokenLineRange.get ()) {
     auto asVals = asValueList (tokenLine, identifierScopes);
     writeln (`Got as value list `, asVals);

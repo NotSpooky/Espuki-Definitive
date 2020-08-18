@@ -20,6 +20,7 @@ struct Token {
     , stringLiteral
     , singleQuotSymbol
     , identifier
+    , semicolon // Handled internally
     , backslash // Handled internally
   }
   Type type;
@@ -29,6 +30,7 @@ debug import std.stdio;
 
 import std.typecons;
 alias LexRet = Nullable! (Token [][]);
+alias TokenAppender = Appender! (Token []);
 import std.algorithm;
 // Mutable mess :)
 // Absolutely not proud of this function.
@@ -37,7 +39,7 @@ auto lex (R)(ref R inputLines) {
   // Outside the loop as output lines might not have a 1:1 relationship with
   // input lines in cases such as empty/commented lines or '\' at the end of
   // a line.
-  Appender! (Token []) currentLineTokens;
+  TokenAppender currentLineTokens;
   bool inAsteriskComment = false;
   uint plusCommentDepth = 0;
 
@@ -49,8 +51,8 @@ auto lex (R)(ref R inputLines) {
   for (; !inputLines.empty; inputLines.popFront) {
     auto line = inputLines.front;
     continueLine:
-    writeln ("\tLexing line ", line);
-    writeln (`plusCommentDepth `, plusCommentDepth);
+    //writeln ("\tLexing line ", line);
+    //writeln (`plusCommentDepth `, plusCommentDepth);
 
     if (inAsteriskComment) {
       assert (
@@ -67,7 +69,6 @@ auto lex (R)(ref R inputLines) {
       while (true) {
         if (line.startsWith (`+/`) || line.startsWith (`/+`)) {
           assert (line.length >= 2);
-          writeln (`Found nested comment boundary: `, line [0..2]);
           if (line.front == '+') {
             plusCommentDepth --;
             line = line [2..$];
@@ -125,6 +126,17 @@ auto lex (R)(ref R inputLines) {
           case '-':
             type = minus;
             break;
+          case ';':
+            auto currentLineData = currentLineTokens [];
+            if (currentLineData.length == 0) {
+              stderr.writeln (`; found with empty left side`);
+              return LexRet ();
+            } else {
+              line.popFront ();
+              toRet ~= currentLineData;
+              currentLineTokens = TokenAppender ();
+              goto continueLine;
+            }
           default:
             break;
         }
@@ -179,7 +191,7 @@ auto lex (R)(ref R inputLines) {
             , RegexType (ctRegex!`^[0-9]+`, integerLiteral)
             , RegexType (ctRegex!`^[\w]+`, identifier)
             , RegexType (ctRegex!`^'[\w]+`, singleQuotSymbol)
-            , RegexType (ctRegex!`^\\`, backslash)
+            , RegexType (ctRegex!`^\\`, backslash) // Might be better to handle above
           ];
           bool foundMatchingRegex = false;
           foreach (regType; regexTypes) {
@@ -199,6 +211,7 @@ auto lex (R)(ref R inputLines) {
         }
       }
     }
+
     auto currentLineData = currentLineTokens [];
     if (currentLineData.length == 0) {
       continue;
@@ -209,12 +222,11 @@ auto lex (R)(ref R inputLines) {
         return LexRet ();
       }
       currentLineTokens = appender (currentLineData [0..$-1]);
-      writeln (`currentLineData is `, currentLineData);
       continue;
     }
     debug writeln (`Token line `, currentLineData);
     toRet ~= currentLineData;
-    currentLineTokens.clear ();
+    currentLineTokens = TokenAppender ();
   }
   if (inAsteriskComment) {
     // TODO: Keep track of comment start.
