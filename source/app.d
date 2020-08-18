@@ -219,13 +219,14 @@ ValueOrErr processLines (R)(
 
   writeln (tokenLineRange);
   foreach (tokenLine; tokenLineRange.get ()) {
-    auto asVals = asValueList (tokenLine, identifierScopes);
+    auto asVals = asValueList (tokenLine, identifierScopes ~ lastIdScope);
     writeln (`Got as value list `, asVals);
     bool foundRule = false;
     foreach_reverse (rules; ruleScopes) {
       auto tried = rules.execute (asVals);
       if (!tried.isNull ()) {
         lastIdScope = IdentifierScope (["_" : tried.get ()]);
+        writeln (`lastIdScope is `, lastIdScope);
         foundRule = true;
         break;
       } 
