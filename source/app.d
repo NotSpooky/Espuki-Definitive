@@ -73,10 +73,10 @@ struct RuleScope {
   }
 
   // Didn't let me use a Nullable!Value instead of pointer :(
-  ValueOrErr execute (Value [] args, bool usedUnderscore, Value * underscoreVal) {
-    writeln (`Executing `, args, `. Used _? `, usedUnderscore);
+  ValueOrErr execute (Value [] args, bool inferUnderscore, Value * underscoreVal) {
+    writeln (`Executing `, args, `. Infer _? `, inferUnderscore);
     auto validMatches = rules.filter! ((rule) {
-      if (usedUnderscore) {
+      if (!inferUnderscore) {
         // Args should appear in the same order as the rule
         if (rule.args.length != args.length) return false;
         return args.zip (rule.args).all! ((pair) {
@@ -271,7 +271,7 @@ ValueOrErr processLines (R)(
   }
 
   foreach (i, tokenLine; tokenLineRange.get ()) {
-    auto asVals = asValueList (tokenLine, identifierScopes ~ lastIdScope);
+    auto asVals = asValueList (tokenLine.tokens, identifierScopes ~ lastIdScope);
     writeln (`Got as value list `, asVals.values, ` used _? `, asVals.usedUnderscore);
     bool foundRule = false;
     foreach_reverse (rules; ruleScopes) {
@@ -283,7 +283,7 @@ ValueOrErr processLines (R)(
       }+/
       auto tried = rules.execute (
         asVals.values
-        , asVals.usedUnderscore || i == 0 // First line can't use underscore
+        , (!asVals.usedUnderscore) && (!tokenLine.isStart)
         , underscoreVal
       );
       if (!tried.isNull ()) {

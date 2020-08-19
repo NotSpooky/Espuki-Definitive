@@ -28,19 +28,25 @@ struct Token {
 
 debug import std.stdio;
 
+struct TokenListWithStartMark {
+  Token [] tokens;
+  bool isStart;
+}
+
 import std.typecons;
-alias LexRet = Nullable! (Token [][]);
+alias LexRet = Nullable! (TokenListWithStartMark []);
 alias TokenAppender = Appender! (Token []);
 import std.algorithm;
 // Mutable mess :)
 // Absolutely not proud of this function.
 auto lex (R)(ref R inputLines) {
-  Appender! (Token [][]) toRet;
+  Appender! (TokenListWithStartMark []) toRet;
   // Outside the loop as output lines might not have a 1:1 relationship with
   // input lines in cases such as empty/commented lines or '\' at the end of
   // a line.
   TokenAppender currentLineTokens;
   bool inAsteriskComment = false;
+  bool isStart = true;
   uint plusCommentDepth = 0;
 
   import std.array;
@@ -133,8 +139,9 @@ auto lex (R)(ref R inputLines) {
               return LexRet ();
             } else {
               line.popFront ();
-              toRet ~= currentLineData;
+              toRet ~= TokenListWithStartMark (currentLineData, isStart);
               currentLineTokens = TokenAppender ();
+              isStart = true;
               goto continueLine;
             }
           default:
@@ -225,7 +232,8 @@ auto lex (R)(ref R inputLines) {
       continue;
     }
     debug writeln (`Token line `, currentLineData);
-    toRet ~= currentLineData;
+    toRet ~= TokenListWithStartMark (currentLineData, isStart);
+    isStart = false;
     currentLineTokens = TokenAppender ();
   }
   if (inAsteriskComment) {
