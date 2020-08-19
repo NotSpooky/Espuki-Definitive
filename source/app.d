@@ -5,7 +5,7 @@ import std.variant;
 import std.algorithm;
 import std.range;
 import std.conv : to, text;
-import std.typecons : Nullable, nullable;
+import std.typecons;
 
 private uint lastTypeId;
 struct Type {
@@ -72,20 +72,68 @@ struct RuleScope {
     this.rules = rules;
   }
 
-  ValueOrErr execute (Value [] args) {
-    auto validMatches = rules.filter!((rule) {
-      if (rule.args.length != args.length) return false;
-      return args.zip (rule.args).all!((pair) {
-        auto arg = pair [0];
-        auto ruleArg = pair [1];
-        if (ruleArg.type == typeid (string)) {
-          // In case of strings, make sure the value has the same string
-          return arg.type == Identifier && arg.value.get!string == ruleArg.get!string;
-        } else {
-          assert (ruleArg.type == typeid (Type));
-          return arg.type == ruleArg.get!Type;
+  // Didn't let me use a Nullable!Value instead of pointer :(
+  ValueOrErr execute (Value [] args, bool usedUnderscore, Value * underscoreVal) {
+    writeln (`Executing `, args, `. Used _? `, usedUnderscore);
+    auto validMatches = rules.filter! ((rule) {
+      if (usedUnderscore) {
+        // Args should appear in the same order as the rule
+        if (rule.args.length != args.length) return false;
+        return args.zip (rule.args).all! ((pair) {
+          auto arg = pair [0];
+          auto ruleArg = pair [1];
+          writeln (`Rule arg is `, ruleArg);
+          if (ruleArg.type == typeid (string)) {
+            // In case of strings, make sure the value has the same string
+            return arg.type == Identifier && arg.value.get!string == ruleArg.get!string;
+          } else {
+            assert (ruleArg.type == typeid (Type));
+            return arg.type == ruleArg.get!Type;
+          }
+        });
+      } else {
+        // First non-string arg is automatically inserted from _
+        if (rule.args.length != args.length + 1) return false;
+        bool alreadyPlacedImplicitUnderscore = false;
+        auto argsCopy = args.save;
+        foreach (i, ruleArg; rule.args) {
+          writeln (`Rule arg is `, ruleArg);
+          if (ruleArg.type == typeid (string)) {
+            auto arg = argsCopy.front;
+            writeln (`1. `, arg.value, ` <-> `, ruleArg);
+            // In case of strings, make sure the value has the same string
+            if (!(arg.type == Identifier && arg.value.get!string == ruleArg.get!string)) {
+              // Text differs
+              return false;
+            }
+          } else if (alreadyPlacedImplicitUnderscore) {
+            auto arg = argsCopy.front;
+            writeln (`2. `, arg.value, ` <-> `, ruleArg);
+            // A value argument.
+            assert (ruleArg.type == typeid (Type));
+            if (arg.type != ruleArg.get!Type) {
+              return false;
+            }
+          } else {
+            writeln (alreadyPlacedImplicitUnderscore);
+            alreadyPlacedImplicitUnderscore = true;
+            writeln (alreadyPlacedImplicitUnderscore);
+            // A value argument. We will insert the value that the underscore points to.
+            assert (underscoreVal != null);
+            writeln (`3. `, *underscoreVal, ` <-> `, ruleArg);
+            writeln (underscoreVal.type, ` |-| `, ruleArg.get!Type);
+            if (underscoreVal.type != ruleArg.get!Type) {
+              return false;
+            } else {
+              args = args [0..i] ~ *underscoreVal ~ args [i..$];
+              // Don't pop args as we didn't use an arg.
+              continue;
+            }
+          }
+          argsCopy.popFront ();
         }
-      });
+        return true;
+      }
     }).array;
     if (validMatches.length == 0) {
       stderr.writeln (`No valid rule in scope level for `, args);
@@ -98,6 +146,7 @@ struct RuleScope {
       );
       return ValueOrErr ();
     }
+    writeln (`Got as args to send: `, args);
     return validMatches [0].execute (args);
   }
 }
@@ -125,6 +174,7 @@ struct IdentifierScope {
 import parser;
 auto asValueList (Token [] tokens, IdentifierScope [] identifierScopes) {
   Appender! (Value []) toRet;
+  bool usedUnderscore = false;
   with (Token.Type) {
     for (; !tokens.empty; tokens.popFront ()) {
       auto token = tokens.front ();
@@ -184,6 +234,9 @@ auto asValueList (Token [] tokens, IdentifierScope [] identifierScopes) {
             auto referenced = strVal in idScope.vals;
             if (referenced != null) {
               foundRef = true;
+              if (strVal.startsWith (`_`)) {
+                usedUnderscore = true;
+              }
               toRet ~= *referenced;
               break;
             }
@@ -199,7 +252,7 @@ auto asValueList (Token [] tokens, IdentifierScope [] identifierScopes) {
       }
     }
   }
-  return toRet.data;
+  return tuple! (`values`, `usedUnderscore`) (toRet.data, usedUnderscore);
 }
 
 alias TokenListR = Nullable! (Token [][]);
@@ -217,13 +270,22 @@ ValueOrErr processLines (R)(
     return ValueOrErr ();
   }
 
-  writeln (tokenLineRange);
-  foreach (tokenLine; tokenLineRange.get ()) {
+  foreach (i, tokenLine; tokenLineRange.get ()) {
     auto asVals = asValueList (tokenLine, identifierScopes ~ lastIdScope);
-    writeln (`Got as value list `, asVals);
+    writeln (`Got as value list `, asVals.values, ` used _? `, asVals.usedUnderscore);
     bool foundRule = false;
     foreach_reverse (rules; ruleScopes) {
-      auto tried = rules.execute (asVals);
+      auto underscoreVal = `_` in lastIdScope.vals;
+      /+
+      ValueOrErr underscoreValAsNullable;
+      if (underscoreVal != null) {
+        underscoreValAsNullable = * underscoreVal;
+      }+/
+      auto tried = rules.execute (
+        asVals.values
+        , asVals.usedUnderscore || i == 0 // First line can't use underscore
+        , underscoreVal
+      );
       if (!tried.isNull ()) {
         lastIdScope = IdentifierScope (["_" : tried.get ()]);
         writeln (`lastIdScope is `, lastIdScope);
