@@ -51,7 +51,12 @@ struct CompositeType {
 
 alias TypeOrString = Algebraic!(Type, string);
 alias ValueOrErr = Nullable!Value;
-alias ApplyFun = ValueOrErr delegate (Value [] apply);
+alias ApplyFun = ValueOrErr delegate (
+  Value [] apply
+  , RuleScope [] scopes
+  , IdentifierScope lastIdScope
+  , bool usedUnderscore
+);
 struct Rule {
   @disable this ();
   TypeOrString [] args;
@@ -73,34 +78,24 @@ struct RuleScope {
   }
 
   // Didn't let me use a Nullable!Value instead of pointer :(
-  ValueOrErr execute (Value [] args, bool inferUnderscore, Value * underscoreVal) {
-    writeln (`Executing `, args, `. Infer _? `, inferUnderscore);
+  ValueOrErr execute (
+    AsValueListRet valListWithUnderscore
+    , RuleScope [] scopes
+    , IdentifierScope lastIdScope
+    , bool inferUnderscore
+    , Value * underscoreVal
+  ) {
+    auto args = valListWithUnderscore.values;
+    writeln (`Executing `, valListWithUnderscore, `. Infer _? `, inferUnderscore);
     auto validMatches = rules.filter! ((rule) {
-      if (!inferUnderscore) {
-        // Args should appear in the same order as the rule
-        if (rule.args.length != args.length) return false;
-        return args.zip (rule.args).all! ((pair) {
-          auto arg = pair [0];
-          auto ruleArg = pair [1];
-          writeln (`Rule arg is `, ruleArg);
-          if (ruleArg.type == typeid (string)) {
-            // In case of strings, make sure the value has the same string
-            return arg.type == Identifier && arg.value.get!string == ruleArg.get!string;
-          } else {
-            assert (ruleArg.type == typeid (Type));
-            return arg.type == ruleArg.get!Type;
-          }
-        });
-      } else {
+      if (inferUnderscore) {
         // First non-string arg is automatically inserted from _
         if (rule.args.length != args.length + 1) return false;
         bool alreadyPlacedImplicitUnderscore = false;
         auto argsCopy = args.save;
         foreach (i, ruleArg; rule.args) {
-          writeln (`Rule arg is `, ruleArg);
           if (ruleArg.type == typeid (string)) {
             auto arg = argsCopy.front;
-            writeln (`1. `, arg.value, ` <-> `, ruleArg);
             // In case of strings, make sure the value has the same string
             if (!(arg.type == Identifier && arg.value.get!string == ruleArg.get!string)) {
               // Text differs
@@ -108,20 +103,15 @@ struct RuleScope {
             }
           } else if (alreadyPlacedImplicitUnderscore) {
             auto arg = argsCopy.front;
-            writeln (`2. `, arg.value, ` <-> `, ruleArg);
             // A value argument.
             assert (ruleArg.type == typeid (Type));
             if (arg.type != ruleArg.get!Type) {
               return false;
             }
           } else {
-            writeln (alreadyPlacedImplicitUnderscore);
             alreadyPlacedImplicitUnderscore = true;
-            writeln (alreadyPlacedImplicitUnderscore);
             // A value argument. We will insert the value that the underscore points to.
             assert (underscoreVal != null);
-            writeln (`3. `, *underscoreVal, ` <-> `, ruleArg);
-            writeln (underscoreVal.type, ` |-| `, ruleArg.get!Type);
             if (underscoreVal.type != ruleArg.get!Type) {
               return false;
             } else {
@@ -133,6 +123,20 @@ struct RuleScope {
           argsCopy.popFront ();
         }
         return true;
+      } else { // Don't infer underscore.
+        // Args should appear in the same order as the rule.
+        if (rule.args.length != args.length) return false;
+        return args.zip (rule.args).all! ((pair) {
+          auto arg = pair [0];
+          auto ruleArg = pair [1];
+          if (ruleArg.type == typeid (string)) {
+            // In case of strings, make sure the value has the same string/
+            return arg.type == Identifier && arg.value.get!string == ruleArg.get!string;
+          } else {
+            assert (ruleArg.type == typeid (Type));
+            return arg.type == ruleArg.get!Type;
+          }
+        });
       }
     }).array;
     if (validMatches.length == 0) {
@@ -146,8 +150,13 @@ struct RuleScope {
       );
       return ValueOrErr ();
     }
-    writeln (`Got as args to send: `, args);
-    return validMatches [0].execute (args);
+    writeln (`Got as args to execute: `, args);
+    return validMatches [0].execute (
+      args
+      , scopes
+      , lastIdScope
+      , valListWithUnderscore.usedUnderscore
+    );
   }
 }
 
@@ -171,8 +180,17 @@ struct IdentifierScope {
   Value [string] vals;
 }
 
+struct AsValueListRet {
+  Value [] values;
+  bool usedUnderscore;
+}
+
 import parser;
-auto asValueList (Token [] tokens, IdentifierScope [] identifierScopes) {
+AsValueListRet asValueList (
+  ref Token [] tokens
+  , IdentifierScope [] identifierScopes
+  , bool untilClosingBracket = false
+) {
   Appender! (Value []) toRet;
   bool usedUnderscore = false;
   with (Token.Type) {
@@ -181,8 +199,6 @@ auto asValueList (Token [] tokens, IdentifierScope [] identifierScopes) {
       auto strVal = token.strVal;
       switch (token.type) {
       /+
-      , openingBracket
-      , closingBracket
       , openingParenthesis
       , closingParenthesis
       , openingSquareBracket
@@ -190,6 +206,19 @@ auto asValueList (Token [] tokens, IdentifierScope [] identifierScopes) {
       , stringLiteral
       , singleQuotSymbol
       +/
+        case openingBracket:
+          tokens.popFront ();
+          auto nested = asValueList (tokens, identifierScopes, true);
+          toRet ~= Value (
+            Function, Variant (nested)
+          );
+          break;
+        case closingBracket:
+          if (untilClosingBracket) {
+            return AsValueListRet (toRet.data, usedUnderscore);
+          } else {
+            throw new Exception (`Found '}' without matching '{'`);
+          }
         case comma:
           throw new Exception (`Didn't expect a comma here`);
         case dot:
@@ -252,10 +281,44 @@ auto asValueList (Token [] tokens, IdentifierScope [] identifierScopes) {
       }
     }
   }
-  return tuple! (`values`, `usedUnderscore`) (toRet.data, usedUnderscore);
+  if (untilClosingBracket) {
+    throw new Exception (`Didn't find matching '}'`);
+  }
+  return AsValueListRet (toRet.data, usedUnderscore);
 }
 
 alias TokenListR = Nullable! (Token [][]);
+
+auto executeFromValues (
+  AsValueListRet valueList
+  , RuleScope [] ruleScopes
+  , ref IdentifierScope lastIdScope
+  , bool isStartingLine
+) {
+  bool foundRule = false;
+  auto underscoreVal = `_` in lastIdScope.vals;
+  debug writeln (`> Last id scope? `, lastIdScope);
+  foreach_reverse (rules; ruleScopes) {
+    auto tried = rules.execute (
+      valueList
+      , ruleScopes
+      , lastIdScope
+      , (!valueList.usedUnderscore) && (!isStartingLine)
+      , underscoreVal
+    );
+    if (!tried.isNull ()) {
+      lastIdScope = IdentifierScope (["_" : tried.get ()]);
+      writeln (`Last id scope = `, lastIdScope);
+      foundRule = true;
+      break;
+    } 
+  }
+  if (!foundRule) {
+    stderr.writeln (`No rule found :(`);
+    return false;
+  }
+  return true;
+}
 
 ValueOrErr processLines (R)(
   R lines
@@ -273,28 +336,7 @@ ValueOrErr processLines (R)(
   foreach (i, tokenLine; tokenLineRange.get ()) {
     auto asVals = asValueList (tokenLine.tokens, identifierScopes ~ lastIdScope);
     writeln (`Got as value list `, asVals.values, ` used _? `, asVals.usedUnderscore);
-    bool foundRule = false;
-    foreach_reverse (rules; ruleScopes) {
-      auto underscoreVal = `_` in lastIdScope.vals;
-      /+
-      ValueOrErr underscoreValAsNullable;
-      if (underscoreVal != null) {
-        underscoreValAsNullable = * underscoreVal;
-      }+/
-      auto tried = rules.execute (
-        asVals.values
-        , (!asVals.usedUnderscore) && (!tokenLine.isStart)
-        , underscoreVal
-      );
-      if (!tried.isNull ()) {
-        lastIdScope = IdentifierScope (["_" : tried.get ()]);
-        writeln (`lastIdScope is `, lastIdScope);
-        foundRule = true;
-        break;
-      } 
-    }
-    if (!foundRule) {
-      stderr.writeln (`No rule found :(`);
+    if (!executeFromValues (asVals, ruleScopes, lastIdScope, tokenLine.isStart)) {
       return ValueOrErr ();
     }
   }
