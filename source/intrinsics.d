@@ -1,5 +1,7 @@
 module intrinsics;
 
+import app;
+
 Type String;
 Type Identifier;
 Type I32;
@@ -7,6 +9,20 @@ Type F32;
 Type Function;
 
 RuleScope * globalRules;
+
+Rule identity (Type type) {
+  return Rule (
+    // Single int returns itself
+    [TypeOrString (type)], (
+      RTValue [] args
+      , RuleScope [] scopes
+      , bool usedUnderscore
+    ) {
+      assert (args.length == 1);
+      return ValueOrErr (args [0]);
+    }
+  );
+}
 static this () {
   String = Type (`String`);
   Identifier = Type (`Identifier`);
@@ -20,11 +36,11 @@ static this () {
     , identity (I32)
     , identity (F32)
     , identity (Function)
+    /+
     , Rule (
       [TypeOrString (`apply`), TypeOrString (I32), TypeOrString (Function)], (
-        Value [] args
+        RTValue [] args
         , RuleScope [] scopes
-        , IdentifierScope lastIdScope
         , bool usedUnderscore
       ) {
         import std.stdio;
@@ -39,40 +55,21 @@ static this () {
           , lastIdScope
           , usedUnderscore
         );
-        if (returned) {
-          return ValueOrErr (lastIdScope.vals [`_`]);
-        } else {
+        if (returned.isNull ()) {
           return ValueOrErr ();
+        } else {
+          return ValueOrErr (lastIdScope.vals [`_`]);
         }
       }
     )
     , fromD!plus
+    +/
   ]);
-  /+
-  import std.stdio;
-  writeln (`Made global rules: `, *globalRules);
-  +/
 }
 
+/+
 extern (C) {
   int plus (int a, int b) { return a + b; }
-}
-
-import app;
-
-Rule identity (Type type) {
-  return Rule (
-    // Single int returns itself
-    [TypeOrString (type)], (
-      Value [] args
-      , RuleScope [] scopes
-      , IdentifierScope lastIdScope
-      , bool usedUnderscore
-    ) {
-      assert (args.length == 1);
-      return ValueOrErr (args [0]);
-    }
-  );
 }
 
 template TypeMapping (DType) {
@@ -130,3 +127,4 @@ Rule fromD (alias Fun) () {
     }
   );
 }
++/

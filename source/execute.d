@@ -24,8 +24,14 @@
         )
         nothing found : UserError (`No rule found that matches `, expression)
         _ : _.apply  (expression, lastResult) -> result : InterpreterValue
-        // TODO: Check for name conflicts
-        if result.name! { *scopes.last.add name to result }
+        if result.name! {
+          not null result.name in scopes.flatten {
+            UserError (`Identifier `, result.name ,` already exists`)
+          } , {
+            *scopes.last.add result.name to result
+            null
+          }
+        }
 
         if expression producesUnderscore:
           result
@@ -39,7 +45,7 @@
         // Add implicit first arg
         [ lastResult.type ] else []
     ) ~ expression.arguments.map {
-      Identifier : scopes.flatten [ _ ] // Note: Can error
+      Identifier : scopes.flatten [ _ ] // Note: Can error, and might be faster to precalculate this
       string : _
       RTValue : type
     }
@@ -49,3 +55,6 @@
   // apply Rule rule Expression expression : InterpreterValue
    
 +/
+
+// First step. Get The lines as an Expression []
+

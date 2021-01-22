@@ -5,5 +5,8 @@
 	"copyright": "Copyright © 2020, Christian Durán Carvajal",
 	"description": "Espuki language interpreter",
 	"license": "BSD-2",
-	"name": "espuki"
+	"name": "espuki",
+  "dependencies": {
+    "mir-core": "~>1.1"
+  }
 }

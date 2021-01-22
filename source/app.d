@@ -1,11 +1,18 @@
 module app;
 
 import std.stdio;
-import std.variant;
-import std.algorithm;
-import std.range;
-import std.conv : to, text;
-import std.typecons;
+import mir.algebraic;
+import lexer;
+void main () {
+  asExpressions (File (`example.es`).byLineCopy ()).visit! (
+    (Expression [] expressions) { 
+      foreach (expression; expressions) {
+        debug expression.writeln ();
+      }
+    }
+    , (UserError ue) { stderr.writeln (`Error: `, ue.message); }
+  );
+}
 
 private uint lastTypeId;
 struct Type {
@@ -22,41 +29,32 @@ struct Type {
   }
 }
 
-string names (Type [] args) {
-  return args.map!`a.name`.joiner.to!string;
-}
-
-struct CompositeType {
-  uint parameterAmount;
-  string name; // Just for pretty printing.
-  this (uint parameterAmount, string name) {
-    this.parameterAmount = parameterAmount;
-    this.name = name;
+alias Var = Variant! (float, string, int);
+/// A value in the interpreter.
+struct RTValue {
+  Type type;
+  Var value;
+  this (Type type, Var value) {
+    this.type = type;
+    this.value = value;
   }
-
-  auto instance (Type [] args) {
-    // TODO: Can see if already instanced to avoid copies.
-    assert (args.length == parameterAmount);
-    return Type (this.name ~ ' ' ~ args.names);
-  }
-  auto curry (Type [] args) {
-    // TODO: Can see if already instanced to avoid copies.
-    assert (args.length <= parameterAmount);
-    return CompositeType (
-      (args.length - parameterAmount).to!uint
-      , this.name ~ ' ' ~ args.names
-    );
+  void toString (
+    scope void delegate (const (char)[]) sink
+  ) {
+    sink (type.name);
+    sink (` `);
+    sink (value.toString ());
   }
 }
 
-alias TypeOrString = Algebraic!(Type, string);
-alias ValueOrErr = Nullable!Value;
+alias ValueOrErr = Nullable!RTValue;
 alias ApplyFun = ValueOrErr delegate (
-  Value [] apply
+  RTValue [] apply
   , RuleScope [] scopes
-  , IdentifierScope lastIdScope
   , bool usedUnderscore
 );
+
+alias TypeOrString = Variant! (Type, string);
 struct Rule {
   @disable this ();
   TypeOrString [] args;
@@ -69,6 +67,11 @@ struct Rule {
   }
 }
 
+/// An error in the code that the compiler/interpreter should show.
+struct UserError {
+  string message;
+}
+
 import intrinsics;
 struct RuleScope {
   @disable this ();
@@ -77,6 +80,7 @@ struct RuleScope {
     this.rules = rules;
   }
 
+  /+
   // Didn't let me use a Nullable!Value instead of pointer :(
   ValueOrErr execute (
     AsValueListRet valListWithUnderscore
@@ -158,21 +162,40 @@ struct RuleScope {
       , valListWithUnderscore.usedUnderscore
     );
   }
+  +/
+}
+/+
+
+
+import std.algorithm;
+import std.range;
+import std.conv : to, text;
+import std.typecons;
+
+string names (Type [] args) {
+  return args.map!`a.name`.joiner.to!string;
 }
 
-struct Value {
-  Type type;
-  Variant value;
-  this (Type type, Variant value) {
-    this.type = type;
-    this.value = value;
+struct CompositeType {
+  uint parameterAmount;
+  string name; // Just for pretty printing.
+  this (uint parameterAmount, string name) {
+    this.parameterAmount = parameterAmount;
+    this.name = name;
   }
-  void toString (
-    scope void delegate (const (char)[]) sink
-  ) {
-    sink (type.name);
-    sink (` `);
-    sink (value.toString ());
+
+  auto instance (Type [] args) {
+    // TODO: Can see if already instanced to avoid copies.
+    assert (args.length == parameterAmount);
+    return Type (this.name ~ ' ' ~ args.names);
+  }
+  auto curry (Type [] args) {
+    // TODO: Can see if already instanced to avoid copies.
+    assert (args.length <= parameterAmount);
+    return CompositeType (
+      (args.length - parameterAmount).to!uint
+      , this.name ~ ' ' ~ args.names
+    );
   }
 }
 
@@ -183,6 +206,20 @@ struct IdentifierScope {
 struct AsValueListRet {
   Value [] values;
   bool usedUnderscore;
+  Nullable!string nameOfResult;
+  void toString (
+    scope void delegate (const (char)[]) sink
+  ) {
+    sink (`AVLR(`);
+    sink (values.to!string);
+    sink (`, used underscore? `);
+    sink (usedUnderscore.to!string);
+    if (!nameOfResult.isNull ()) {
+      sink (`, named `);
+      sink (nameOfResult.get ());
+    }
+    sink (`)`);
+  }
 }
 
 import parser;
@@ -215,7 +252,7 @@ AsValueListRet asValueList (
           break;
         case closingBracket:
           if (untilClosingBracket) {
-            return AsValueListRet (toRet.data, usedUnderscore);
+            return AsValueListRet (toRet.data, usedUnderscore, Nullable!string ());
           } else {
             throw new Exception (`Found '}' without matching '{'`);
           }
@@ -276,6 +313,23 @@ AsValueListRet asValueList (
             );
           }
           break;
+        case rightArrow:
+          assert (!identifierScopes.empty);
+          tokens.popFront ();
+          // TODO: Change to error rets.
+          assert (!tokens.empty, `Unfinished line after '->'`);
+          assert (
+            tokens.front.type == Token.Type.identifier
+            , `Expected identifier after '->'`
+          );
+          auto untilNow = AsValueListRet (
+            toRet.data
+            , usedUnderscore
+            , Nullable!string (tokens.front.strVal)
+          );
+          tokens.popFront ();
+          assert (tokens.empty, `Shouldn't have tokens after '-> identifier'`);
+          return untilNow;
         default:
           assert (0, `TODO: Parse ` ~ token.to!string);
       }
@@ -284,12 +338,15 @@ AsValueListRet asValueList (
   if (untilClosingBracket) {
     throw new Exception (`Didn't find matching '}'`);
   }
-  return AsValueListRet (toRet.data, usedUnderscore);
+  return AsValueListRet (toRet.data, usedUnderscore, Nullable!string ());
 }
 
 alias TokenListR = Nullable! (Token [][]);
-
-auto executeFromValues (
+struct ReturnedAliases {
+  string [] aliases;
+}
+alias ExecuteRet = Nullable!ReturnedAliases;
+ExecuteRet executeFromValues (
   AsValueListRet valueList
   , RuleScope [] ruleScopes
   , ref IdentifierScope lastIdScope
@@ -307,17 +364,16 @@ auto executeFromValues (
       , underscoreVal
     );
     if (!tried.isNull ()) {
-      lastIdScope = IdentifierScope (["_" : tried.get ()]);
-      writeln (`Last id scope = `, lastIdScope);
-      foundRule = true;
-      break;
+      lastIdScope = IdentifierScope ([`_` : tried.get ()]);
+      if (valueList.nameOfResult.isNull ()) {
+        return ExecuteRet (ReturnedAliases ());
+      } else {
+        return ExecuteRet (ReturnedAliases ([valueList.nameOfResult.get ()]));
+      }
     } 
   }
-  if (!foundRule) {
-    stderr.writeln (`No rule found :(`);
-    return false;
-  }
-  return true;
+  stderr.writeln (`No rule found :(`);
+  return ExecuteRet ();
 }
 
 ValueOrErr processLines (R)(
@@ -336,7 +392,10 @@ ValueOrErr processLines (R)(
   foreach (i, tokenLine; tokenLineRange.get ()) {
     auto asVals = asValueList (tokenLine.tokens, identifierScopes ~ lastIdScope);
     writeln (`Got as value list `, asVals.values, ` used _? `, asVals.usedUnderscore);
-    if (!executeFromValues (asVals, ruleScopes, lastIdScope, tokenLine.isStart)) {
+    if (
+      executeFromValues (asVals, ruleScopes, lastIdScope, tokenLine.isStart)
+        .isNull ()
+    ) {
       return ValueOrErr ();
     }
   }
@@ -352,4 +411,4 @@ void main () {
       * globalRules
     ]
   ).writeln;
-}
+}+/
