@@ -35,7 +35,7 @@ struct Identifier {
 
 import mir.algebraic;
 import std.algorithm;
-import app : RTValue, UserError;
+import execute : RTValue, UserError;
 
 private union EArg {
   Identifier identifier;
@@ -66,47 +66,28 @@ struct Expression {
   }
 }
 
-alias MaybeExpression = Variant! (Expression, UserError);
-import parser : toExpression;
-/+
-/// Builder for Expression that can return an error if needed.
-auto expression (
-  Token [] tokens
-  , bool producesUnderscore
-  , Nullable!string name = null
-) {
-  auto toRet = Expression ([], producesUnderscore, name);
-  import parser : toExpression;
-  auto asEA = tokens.toExpression ();
-  if (asEA._is!UserError) {
-    return MaybeExpression (asEA.get!UserError);
-  }
-  assert (asEA._is! (ExpressionArg []));
-  toRet.args = asEA.get! (ExpressionArg []);
-  return MaybeExpression (toRet);
-}+/
-
-//struct TokenListWithStartMark {
-//  Token [] tokens;
-//  bool isStart;
-//}
-
 alias LexRet = Variant! (Expression [], UserError);
-alias TokenAppender = Appender! (Token []);
+
 import std.algorithm;
 // Mutable mess :)
 // Absolutely not proud of this function.
+
+/// Tries to generate a list of expressions from text.
+/// Note: Doesn't return a list of tokens.
+/// Those are handled here direclty or by using parser.toExpression
 LexRet lex (R)(ref R inputLines) {
   Appender! (Expression []) toRet;
   // Outside the loop as output lines might not have a 1:1 relationship with
   // input lines in cases such as empty/commented lines or '\' at the end of
   // a line.
+  alias TokenAppender = Appender! (Token []);
   TokenAppender currentLineTokens;
   bool inAsteriskComment = false;
   uint plusCommentDepth = 0;
 
   import std.array;
   import std.string;
+  import parser : toExpression;
 
   // Note: Jumping to this label doesn't execute a popFront at the start.
   lexLine:

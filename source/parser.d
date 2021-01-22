@@ -2,12 +2,13 @@ module parser;
 
 import std.algorithm;
 import std.range;
-import lexer : ExpressionArg, Expression, Token, MaybeExpression;
+import lexer : ExpressionArg, Expression, Token;
 import intrinsics;
 import mir.algebraic;
 debug import std.stdio;
-import app : RTValue, Var, UserError;
+import execute : RTValue, Var, UserError;
 
+alias MaybeExpression = Variant! (Expression, UserError);
 /// Used to convert tokens to a list of:
 /// identifiers in case of references,
 /// strings in case of symbols

@@ -1,169 +1,19 @@
 module app;
 
 import std.stdio;
-import mir.algebraic;
-import lexer;
+import execute;
+import mir.algebraic : visit;
+
 void main () {
-  asExpressions (File (`example.es`).byLineCopy ()).visit! (
-    (Expression [] expressions) { 
-      foreach (expression; expressions) {
-        debug expression.writeln ();
-      }
-    }
-    , (UserError ue) { stderr.writeln (`Error: `, ue.message); }
-  );
-}
-
-private uint lastTypeId;
-struct Type {
-  //@disable this (); // Cannot disable when assigning to Variant :(
-  uint id;
-  string name; // Just for pretty printing.
-  this (string name) {
-    this.name = name;
-    this.id = lastTypeId;
-    lastTypeId ++;
-  }
-  bool opEquals()(auto ref const Type other) const {
-    return other.id == this.id;
-  }
-}
-
-alias Var = Variant! (float, string, int);
-/// A value in the interpreter.
-struct RTValue {
-  Type type;
-  Var value;
-  this (Type type, Var value) {
-    this.type = type;
-    this.value = value;
-  }
-  void toString (
-    scope void delegate (const (char)[]) sink
-  ) {
-    sink (type.name);
-    sink (` `);
-    sink (value.toString ());
-  }
-}
-
-alias ValueOrErr = Nullable!RTValue;
-alias ApplyFun = ValueOrErr delegate (
-  RTValue [] apply
-  , RuleScope [] scopes
-  , bool usedUnderscore
-);
-
-alias TypeOrString = Variant! (Type, string);
-struct Rule {
-  @disable this ();
-  TypeOrString [] args;
-  // Can assume that execute has correct arg types.
-  ApplyFun execute;
-  this (TypeOrString [] args, ApplyFun execute) {
-    assert (args.length > 0, `Rule with no args`);
-    this.args = args;
-    this.execute = execute;
-  }
-}
-
-/// An error in the code that the compiler/interpreter should show.
-struct UserError {
-  string message;
-}
-
-import intrinsics;
-struct RuleScope {
-  @disable this ();
-  Rule [] rules;
-  this (Rule [] rules) {
-    this.rules = rules;
-  }
-
   /+
-  // Didn't let me use a Nullable!Value instead of pointer :(
-  ValueOrErr execute (
-    AsValueListRet valListWithUnderscore
-    , RuleScope [] scopes
-    , IdentifierScope lastIdScope
-    , bool inferUnderscore
-    , Value * underscoreVal
-  ) {
-    auto args = valListWithUnderscore.values;
-    writeln (`Executing `, valListWithUnderscore, `. Infer _? `, inferUnderscore);
-    auto validMatches = rules.filter! ((rule) {
-      if (inferUnderscore) {
-        // First non-string arg is automatically inserted from _
-        if (rule.args.length != args.length + 1) return false;
-        bool alreadyPlacedImplicitUnderscore = false;
-        auto argsCopy = args.save;
-        foreach (i, ruleArg; rule.args) {
-          if (ruleArg.type == typeid (string)) {
-            auto arg = argsCopy.front;
-            // In case of strings, make sure the value has the same string
-            if (!(arg.type == Identifier && arg.value.get!string == ruleArg.get!string)) {
-              // Text differs
-              return false;
-            }
-          } else if (alreadyPlacedImplicitUnderscore) {
-            auto arg = argsCopy.front;
-            // A value argument.
-            assert (ruleArg.type == typeid (Type));
-            if (arg.type != ruleArg.get!Type) {
-              return false;
-            }
-          } else {
-            alreadyPlacedImplicitUnderscore = true;
-            // A value argument. We will insert the value that the underscore points to.
-            assert (underscoreVal != null);
-            if (underscoreVal.type != ruleArg.get!Type) {
-              return false;
-            } else {
-              args = args [0..i] ~ *underscoreVal ~ args [i..$];
-              // Don't pop args as we didn't use an arg.
-              continue;
-            }
-          }
-          argsCopy.popFront ();
-        }
-        return true;
-      } else { // Don't infer underscore.
-        // Args should appear in the same order as the rule.
-        if (rule.args.length != args.length) return false;
-        return args.zip (rule.args).all! ((pair) {
-          auto arg = pair [0];
-          auto ruleArg = pair [1];
-          if (ruleArg.type == typeid (string)) {
-            // In case of strings, make sure the value has the same string/
-            return arg.type == Identifier && arg.value.get!string == ruleArg.get!string;
-          } else {
-            assert (ruleArg.type == typeid (Type));
-            return arg.type == ruleArg.get!Type;
-          }
-        });
-      }
-    }).array;
-    if (validMatches.length == 0) {
-      stderr.writeln (`No valid rule in scope level for `, args);
-      return ValueOrErr ();
-    } else if (validMatches.length > 1) {
-      stderr.writeln (
-        `Multiple matching rules for `
-        , args
-        , validMatches.map!`"\n\t" ~ a.to!string`.joiner ()
-      );
-      return ValueOrErr ();
-    }
-    writeln (`Got as args to execute: `, args);
-    return validMatches [0].execute (
-      args
-      , scopes
-      , lastIdScope
-      , valListWithUnderscore.usedUnderscore
-    );
-  }
+  import std.conv : to;
+  executeFromLines (File (`example.es`).byLineCopy ()).visit !(
+    (RTValue val) => writeln (val.value.visit! (to!string))
+    , (err) => err.writeln
+  );
   +/
 }
+
 /+
 
 

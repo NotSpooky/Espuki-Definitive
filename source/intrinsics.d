@@ -1,6 +1,6 @@
 module intrinsics;
 
-import app;
+import execute;
 
 Type String;
 Type Identifier;
@@ -13,7 +13,7 @@ RuleScope * globalRules;
 Rule identity (Type type) {
   return Rule (
     // Single int returns itself
-    [TypeOrString (type)], (
+    [TypeOrSymbol (type)], (
       RTValue [] args
       , RuleScope [] scopes
       , bool usedUnderscore
@@ -38,7 +38,7 @@ static this () {
     , identity (Function)
     /+
     , Rule (
-      [TypeOrString (`apply`), TypeOrString (I32), TypeOrString (Function)], (
+      [TypeOrSymbol (`apply`), TypeOrSymbol (I32), TypeOrSymbol (Function)], (
         RTValue [] args
         , RuleScope [] scopes
         , bool usedUnderscore
@@ -90,9 +90,9 @@ Rule fromD (alias Fun) () {
   alias RetType = ReturnType!Fun;
   alias Params = Parameters!Fun;
   enum FunName = Fun.mangleof;
-  TypeOrString [] params = [TypeOrString (FunName)];
+  TypeOrSymbol [] params = [TypeOrSymbol (FunName)];
   foreach (Param; Params) {
-    params ~= TypeOrString (TypeMapping!Param);
+    params ~= TypeOrSymbol (TypeMapping!Param);
   }
   return Rule (params, (
     Value [] args
