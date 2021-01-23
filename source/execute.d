@@ -133,183 +133,174 @@ struct Rule {
   }
 }
 
-/+
-  // Note: Trees must have at least one rule in them.
-  // For a single scope, a RuleTree has shape:
-  RuleTree = (
-    (Type | Symbol) [] commonParams
-    , (RuleTree | Rule) [Type | Symbol | Null ] branches
-    , RuleTree? parent
-  )
-
-  // Then, a separate array, stores the pointers to the scope's rules
-  ScopeRules = (
-    (WeakPtr Rule) [] rules
-  )
-  ScopeRules [] scopesRules
-
-  Mut RuleTree tree addRule Rule rule Index rulePos Mut LastScope scope = {
-    // TODO: Modify scope
-    rule args -> rArgs [rulePos .. $]
-    tree commonParams -> common;
-    common length -> commonPLen;
-    rArgs untilDifferent common -> newPos;
-    merged if (rArgs length) == newPos { null } else { rArgs [newPos] }
-      -> branchStart;
-    if newPos >= commonPLen {
-      rulePos + newPos + branchStart? 1 : 0 -> branchRulePos
-      if branchStart in tree branches {
-        // Already exists.
-        tree branches [branchStart] visit [
-          // It's a subtree, so let's add the rule to it
-          RuleTree: add rule branchRulePos scope
-          // Only a rule exists, so it's a conflict.
-          , Rule: UserError (text (`The rule `, rule, ` already exists in the scope`))
-        ]
-      } else {
-        // No branch currently starts at branchStart, so let's just add a leaf.
-        *tree branches [branchStart] = merged if newPos == commonPLen { 
-          // No more args to parse, just add a rule
-          rule
-        } else {
-          // Still need to check last args. A new tree is used for that.
-          RuleTree rArgs [newPos + 1 .. $ - 1] [(rArgs last) : rule] tree
-        }
-      }
-    } else {
-      assert newPos < commonPLen
-      // As the rule is smaller, we just branch before the current branching
-      // point (at newPos).
-
-      // Give the rest of common parameters to the new tree's common
-      // The branches of the new tree will be the ones this tree had.
-      RuleTree common [newPos + 1 .. $] (tree branches) tree -> newTree;
-
-      *tree branches = [null : rule, common [newPos] : newTree]
-      // Last common params were sent to the new tree, so we remove them from
-      // here.
-      *tree commonParams = tree commonParams [0 .. newPos]
-    }
-  }
-+/
-
 alias ScopeRule = RuleTree; // Weak reference
   
 // Pointer because of structure self-reference.
-alias Branch = Variant! (RuleTree *, Rule);
+// alias Branch = Variant! (RuleTree *, Rule);
 
 alias BranchingParam = Variant! (Type, string, typeof (null));
 
 private alias ParentTreeRef = Nullable! (RuleTree *);
+private alias BranchesOrRule = Variant! (Rule, RuleTree * [BranchingParam]);
+auto nullBP = BranchingParam (null);
+
+BranchingParam toBP (TypeOrSymbol tS) {
+  return tS.visit! ((a) => BranchingParam (a));
+}
 
 import std.algorithm;
 /// An easily searchable tree structure to match Expressions with Rules.
+/// Currently implemented as a radix tree.
 struct RuleTree {
   TypeOrSymbol [] commonParams;
   /// Key is the first param in the rule that isn't in the others.
   /// Null if no different parameters (eg. a rule might start the same as others
   /// but the other ones have extra parameters).
-  Branch [BranchingParam] branches;
+  //Branch [BranchingParam] branches;
 
+  BranchesOrRule following;
   ParentTreeRef parent;
-  /// Adds a new rule to the tree.
-  /// Returns the corresponding ScopeRule of the newly added rule
+
+  /// Adds a new rule to the tree and adds a reference of the containing tree.
+  /// to scope_
+  // TODO: Add the rule's tree reference to scope_ for deletion on scope exit.
   void addRule (Rule rule, ref RuleScope scope_, size_t ruleArgStartIndex = 0) {
     auto rArgs = rule.args [ruleArgStartIndex .. $];
-    const commonPLen = commonParams.length;
     // zip -> countUntil didn't seem to work, so manual loop is used
-    debug import std.conv : to, text;
-    size_t branchingPos = rArgs.length;
-    auto branchStart = BranchingParam (null);
-    foreach (i, rArg; rArgs) {
-      if (commonParams.length == i || rArg != commonParams [i]) {
-        branchingPos = i;
-        branchStart = BranchingParam (rArgs [i + 1]);
-        break;
+    const commonLen = this.commonParams.length;
+    const rArgsLen = rArgs.length;
+    size_t branchingPos = 0;
+    for (
+      ; commonLen > branchingPos
+        && rArgsLen > branchingPos
+        && rArgs.ptr [branchingPos] == commonParams.ptr [branchingPos]
+      ; branchingPos ++
+    ) {}
+    assert (branchingPos <= commonLen);
+    assert (branchingPos <= rArgsLen);
+
+    import std.typecons : Tuple, tuple;
+    Tuple!(BranchingParam, TypeOrSymbol []) newBranch (TypeOrSymbol [] rules) {
+      auto branchingKey = BranchingParam (null);
+      TypeOrSymbol [] subTreeCommon;
+      if (rules.length > branchingPos) {
+        // There are more params in the rule. Use the first one as key.
+        branchingKey = BranchingParam (rules [branchingPos]);
+        subTreeCommon = rules [branchingPos + 1 .. $];
       }
+      return tuple (branchingKey, subTreeCommon);
     }
 
-    debug writeln (`Branching pos is `, branchingPos, ` and branchStart `, branchStart);
-    if (branchingPos == commonParams.length) {
-      // The rule has all the commonParams and maybe more.
-      debug writeln (`Rule has >= params than the tree`);
-      auto inBPos = branchStart in branches;
-      if (inBPos) {
-        debug writeln (`Branched on the same path before: `, inBPos);
-        if ((* inBPos)._is! (RuleTree *)) {
-          // Just add to the subtree
-          const subTreeRuleStart = ruleArgStartIndex + branchingPos + 1;
-          auto subTree = (* inBPos).get! (RuleTree *);
-          subTree.addRule (rule, scope_, subTreeRuleStart);
-        } else {
-          // There's a rule stored here.
-          assert ((* inBPos)._is!Rule);
-          auto currentRule = (* inBPos).get!Rule;
-          // Might need to either create a subtree with common [] and null key
-          // to that rule + first of rArgs to another subtree with the
-          // new rule or error if there's no more rArgs, as there would be
-          // ambiguous rules.
-          if (branchingPos == rArgs.length) {
-              // TODO: Change to UserError
-              throw new Exception (text (
-                `Rule `, rule
-                , ` has same parameters as existing one: `, currentRule
-              ));
-          }
-          auto newSubSubTree = new RuleTree (
-            rArgs [branchingPos + 2 .. $]
-            , [ BranchingParam (null) : Branch (rule)]
-          );
+    auto splitFollowing () {
+      auto chopped = newBranch (this.commonParams);
+      auto subTree = newBranch (rArgs);
 
-          auto newSubTree = new RuleTree (
-            []
-            , [
-              BranchingParam (null) : (* inBPos)
-              , BranchingParam (rArgs [branchingPos + 1]) : Branch (newSubSubTree)
-            ]
-            , ParentTreeRef (& this)
-          );
-          newSubSubTree.parent = ParentTreeRef (newSubTree);
-          this.branches [branchStart] = Branch (newSubTree);
-        }
-      } else {
-        // The branch start is not on this.branches, so let's just add it.
-        if (branchingPos == rArgs.length) {
-          branches [branchStart] = Branch (rule);
-        } else {
-          branches [branchStart] = Branch (new RuleTree (
-            rArgs [branchingPos + 1 .. $]
-            , [BranchingParam (null) : Branch (rule)]
+      // Branches before consumming all the this.common params.
+      // So must split this tree at that point into the rest of this one
+      // and another with the new rule.
+      this.following = BranchesOrRule ([
+        chopped [0] : new RuleTree (
+          chopped [1], this.following, ParentTreeRef (&this)
+        )
+        , subTree [0] : new RuleTree (
+          subTree [1], BranchesOrRule (rule), ParentTreeRef (&this)
+        )
+      ]);
+    }
+
+    if (commonLen == branchingPos) {
+      // Keep the current splitting point.
+      following.visit! (
+        (Rule currentRule) {
+          import std.exception : enforce;
+          import std.conv : text;
+          enforce (rArgsLen != commonLen, text (
+            `Rule `, rule
+            , ` has same parameters as existing one: `, currentRule
           ));
+          // rArgsLen > commonLen
+          splitFollowing ();
         }
-      }
-    } else {
-      debug writeln (`Rule has < params than the tree`);
-      assert (branchingPos < commonParams.length);
-      // As the rule is smaller, we just branch before the current branching
-      // point (at newPos).
-
-      // Give the rest of common parameters to the new tree's common
-      // The branches of the new tree will be the ones this tree had.
-      auto newSubTree = new RuleTree (
-        this.commonParams [branchingPos + 1 .. $]
-        , this.branches
-        , ParentTreeRef (&this)
+        , (ref RuleTree * [BranchingParam] branches) {
+          bool rArgsIsBPos = rArgsLen == branchingPos;
+          auto commonStart = branchingPos + (rArgsIsBPos ? 0 : 1);
+          // See https://dlang.org/spec/hash-map.html#advanced_updating
+          branches.update (
+            rArgsIsBPos ? nullBP : BranchingParam (rArgs [branchingPos])
+            , {
+              return new RuleTree (
+                rArgsIsBPos ? [] : rArgs [commonStart .. $]
+                , BranchesOrRule (rule)
+                , ParentTreeRef (&this)
+              );
+            }, (ref RuleTree * t) {
+              t.addRule (rule, scope_, ruleArgStartIndex + commonStart);
+              return t;
+            }
+          );
+        }
       );
-      this.branches = [
-        BranchingParam (null) : Branch (rule)
-        , BranchingParam (branchStart) : Branch (newSubTree)
-      ];
-      // Last common params were sent to the new tree, so we remove them from
-      // here.
+    } else {
+      splitFollowing ();
+      // Create new splitting point.
       this.commonParams = this.commonParams [0 .. branchingPos];
     }
+  }
+
+  enum nullRule = Nullable!Rule (null);
+  // TODO: Return index or equivalent
+  /// Checks if the beginning of ruleArgs matches any rule stored in this tree
+  /// and returns it.
+  /// If there are multiple rules that match, the longest one is given priority.
+  /// Note that a match might not be of the entire ruleArgs.
+  /// null is returned if no rule matches
+  Nullable!Rule matchRule (TypeOrSymbol [] ruleArgs) {
+    foreach (i, ruleArg; ruleArgs) {
+      if (commonParams.length == i) {
+        // We still have more ruleArgs.
+        // We will use the longest match that we find.
+        // Note that the ruleArgs correspond to 1+ expressions, this algorithm
+        // just checks the first one.
+        return this.following.visit! (
+          (Rule r) => Nullable!Rule (r)
+          , (RuleTree * [BranchingParam] branches) {
+            auto subT = BranchingParam (ruleArg) in branches;
+            if (subT) {
+              auto subTResult = (*subT).matchRule (ruleArgs [i + 1 .. $]);
+              if (!subTResult.isNull ()) {
+                return subTResult;
+              }
+            }
+            auto nullT = nullBP in branches;
+            if (nullT) {
+              return (*nullT).matchRule ([]);
+            }
+            return nullRule;
+          }
+        );
+      }
+      if (ruleArg != this.commonParams [i]) {
+        return nullRule;
+      }
+    }
+    if (ruleArgs.length == commonParams.length) {
+      return this.following.visit! (
+        (Rule r) => Nullable!Rule (r) // Exact match
+        , (RuleTree * [BranchingParam] branches) {
+          auto nullT = nullBP in branches;
+          if (nullT) { // Also exact match if successful.
+            return (*nullT).matchRule ([]);
+          }
+          return nullRule;
+        }
+      );
+    }
+    return nullRule;
   }
 }
 
 unittest {
   auto ruleScope = RuleScope ([]);
-  auto rArgs = [TypeOrSymbol (`Example`), TypeOrSymbol (`rule`)];
   auto justErr = delegate (
     RTValue [] apply
     , RuleScope [] scopes
@@ -317,18 +308,26 @@ unittest {
   ) {
     return ValueOrErr ();
   };
+
+  auto rArgs = [TypeOrSymbol (`Example`), TypeOrSymbol (`rule`)];
   auto rule = Rule (rArgs, justErr);
   auto tree = RuleTree (
-    [rArgs [0]],
-    [BranchingParam (rArgs [1]) : Branch (rule)]
+    [rArgs [0], rArgs [1]],
+    BranchesOrRule (rule)
   );
-  
-  auto smallerRArgs = [rArgs [0]];
-  auto smallerRule = Rule (smallerRArgs, justErr);
+
+  // Test splitting at bigger pos:
+  auto biggerRArgs = rArgs ~ TypeOrSymbol (I32);
+  auto biggerRule = Rule (biggerRArgs, justErr);
+  // Matches the first part.
+  assert (tree.matchRule (biggerRArgs) == rule);
+  tree.addRule (biggerRule, ruleScope);
+  assert (tree.matchRule (biggerRArgs) == biggerRule);
+  auto smallerRule = Rule (rArgs [0..1], justErr);
   tree.addRule (smallerRule, ruleScope);
-  assert (tree.commonParams == smallerRArgs);
-  assert (BranchingParam (rArgs [1]) in tree.branches);
-  assert (BranchingParam (null) in tree.branches);
+  assert (tree.matchRule (rArgs [0..1]) == smallerRule);
+  assert (tree.matchRule (rArgs) == rule);
+  assert (tree.matchRule (biggerRArgs) == biggerRule);
 }
 
 import intrinsics;
