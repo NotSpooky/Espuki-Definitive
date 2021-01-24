@@ -420,13 +420,20 @@ unittest {
   tree.addRule (biggerRule);
   assert (tree.matchRule (biggerRArgs) == biggerRule);
   auto smallerRule = Rule (rArgs [0..1], justErr);
-  auto smallerRuleLeaf = tree.addRule (smallerRule);
+  tree.addRule (smallerRule);
   assert (tree.matchRule (rArgs [0..1]) == smallerRule);
   assert (tree.matchRule (rArgs) == rule);
   assert (tree.matchRule (biggerRArgs) == biggerRule);
   tree.removeRule (biggerRArgs);
   // Assert not there anymore.
   assert (tree.matchRule (biggerRArgs) == rule);
+  // Test with different args.
+  auto differentRArgs = [TypeOrSymbol (`Hello`), TypeOrSymbol (`There`)];
+  auto differentRule = Rule (differentRArgs, justErr);
+  tree.addRule (differentRule);
+  assert (tree.matchRule (differentRArgs) == differentRule);
+  tree.removeRule (differentRArgs);
+  assert (tree.matchRule (differentRArgs).isNull ());
 }
 
 import intrinsics;
