@@ -56,6 +56,7 @@
 +/
 
 import mir.algebraic;
+import std.conv : text, to;
 
 private uint lastTypeId;
 struct Type {
@@ -141,8 +142,9 @@ alias ScopeRule = RuleTree; // Weak reference
 alias BranchingParam = Variant! (Type, string, typeof (null));
 
 private alias ParentTreeRef = Nullable! (RuleTree *);
-private alias BranchesOrRule = Variant! (Rule, RuleTree * [BranchingParam]);
-auto nullBP = BranchingParam (null);
+private alias Branches = RuleTree * [BranchingParam];
+private alias BranchesOrRule = Variant! (Rule, Branches);
+const nullBP = BranchingParam (null);
 
 BranchingParam toBP (TypeOrSymbol tS) {
   return tS.visit! ((a) => BranchingParam (a));
@@ -156,15 +158,17 @@ struct RuleTree {
   /// Key is the first param in the rule that isn't in the others.
   /// Null if no different parameters (eg. a rule might start the same as others
   /// but the other ones have extra parameters).
-  //Branch [BranchingParam] branches;
 
   BranchesOrRule following;
   ParentTreeRef parent;
 
-  /// Adds a new rule to the tree and adds a reference of the containing tree.
-  /// to scope_
-  // TODO: Add the rule's tree reference to scope_ for deletion on scope exit.
-  void addRule (Rule rule, ref RuleScope scope_, size_t ruleArgStartIndex = 0) {
+  // Note: Currently the following is allowed to change from Rule to branches.
+  // If that becomes disallowed, no matching is needed to delete nodes from the
+  // scope. BUT AS OF NOW THAT ISN'T THE CASE, on split, the leaf node might
+  // become a branch.
+  /// Adds a new rule to the tree and returns its containing leaf
+  /// (which might mutate on further RuleTree method calls)
+  RuleTree * addRule (Rule rule, size_t ruleArgStartIndex = 0) {
     auto rArgs = rule.args [ruleArgStartIndex .. $];
     // zip -> countUntil didn't seem to work, so manual loop is used
     const commonLen = this.commonParams.length;
@@ -193,7 +197,10 @@ struct RuleTree {
 
     auto splitFollowing () {
       auto chopped = newBranch (this.commonParams);
-      auto subTree = newBranch (rArgs);
+      auto subTreeA = newBranch (rArgs);
+      auto subTree = new RuleTree (
+        subTreeA [1], BranchesOrRule (rule), ParentTreeRef (&this)
+      );
 
       // Branches before consumming all the this.common params.
       // So must split this tree at that point into the rest of this one
@@ -202,48 +209,50 @@ struct RuleTree {
         chopped [0] : new RuleTree (
           chopped [1], this.following, ParentTreeRef (&this)
         )
-        , subTree [0] : new RuleTree (
-          subTree [1], BranchesOrRule (rule), ParentTreeRef (&this)
-        )
+        , subTreeA [0] : subTree
       ]);
+      return subTree;
     }
 
     if (commonLen == branchingPos) {
       // Keep the current splitting point.
-      following.visit! (
+      return following.visit! (
         (Rule currentRule) {
           import std.exception : enforce;
-          import std.conv : text;
           enforce (rArgsLen != commonLen, text (
             `Rule `, rule
             , ` has same parameters as existing one: `, currentRule
           ));
           // rArgsLen > commonLen
-          splitFollowing ();
+          return splitFollowing ();
         }
-        , (ref RuleTree * [BranchingParam] branches) {
+        , (ref Branches branches) {
           bool rArgsIsBPos = rArgsLen == branchingPos;
           auto commonStart = branchingPos + (rArgsIsBPos ? 0 : 1);
+          RuleTree * toRet = (&this);
           // See https://dlang.org/spec/hash-map.html#advanced_updating
           branches.update (
             rArgsIsBPos ? nullBP : BranchingParam (rArgs [branchingPos])
             , {
-              return new RuleTree (
+              toRet = new RuleTree (
                 rArgsIsBPos ? [] : rArgs [commonStart .. $]
                 , BranchesOrRule (rule)
                 , ParentTreeRef (&this)
               );
+              return toRet;
             }, (ref RuleTree * t) {
-              t.addRule (rule, scope_, ruleArgStartIndex + commonStart);
+              t.addRule (rule, ruleArgStartIndex + commonStart);
               return t;
             }
           );
+          return toRet;
         }
       );
     } else {
-      splitFollowing ();
+      auto toRet = splitFollowing ();
       // Create new splitting point.
       this.commonParams = this.commonParams [0 .. branchingPos];
+      return toRet;
     }
   }
 
@@ -262,8 +271,10 @@ struct RuleTree {
         // Note that the ruleArgs correspond to 1+ expressions, this algorithm
         // just checks the first one.
         return this.following.visit! (
-          (Rule r) => Nullable!Rule (r)
-          , (RuleTree * [BranchingParam] branches) {
+          (Rule r) {
+            return Nullable!Rule (r);
+          }
+          , (ref Branches branches) {
             auto subT = BranchingParam (ruleArg) in branches;
             if (subT) {
               auto subTResult = (*subT).matchRule (ruleArgs [i + 1 .. $]);
@@ -286,7 +297,7 @@ struct RuleTree {
     if (ruleArgs.length == commonParams.length) {
       return this.following.visit! (
         (Rule r) => Nullable!Rule (r) // Exact match
-        , (RuleTree * [BranchingParam] branches) {
+        , (Branches branches) {
           auto nullT = nullBP in branches;
           if (nullT) { // Also exact match if successful.
             return (*nullT).matchRule ([]);
@@ -296,6 +307,91 @@ struct RuleTree {
       );
     }
     return nullRule;
+  }
+
+  /// Removes rule from this tree.
+  /// Assumes that the rule exists. DOESN'T CHECK FOR IT.
+  void removeRule (TypeOrSymbol [] ruleArgs) {
+    assert (this.following._is!Branches);
+    auto branches = this.following.get!Branches;
+    // debug writeln (`Branches before: `, branches);
+    assert (
+      branches.length >= 2
+      , `Shouldn't have single branch before prunning`
+    );
+
+    auto commonLen = this.commonParams.length;
+    void recurse (RuleTree * subT, BranchingParam bp) {
+      if (subT.following._is!Rule) {
+        // Found the rule, remove the branch with it.
+        branches.remove (bp);
+        if (branches.length == 1) {
+          // We don't want trees with single branches.
+          // Merge with that sub-branch.
+          auto singleC = branches.byKeyValue ().front ();
+          this.commonParams ~= singleC.key.visit! (
+            (typeof (null)) => TypeOrSymbol [].init
+            , (a) => [TypeOrSymbol (a)]
+          ) ~ singleC.value.commonParams;
+          this.following = singleC.value.following;
+          // debug writeln (`Merged with only child `, singleC);
+          // debug writeln (`Now follows `, following);
+        }
+      } else {
+        const firstSubP = commonLen + (bp == nullBP ? 0 : 1);
+        subT.removeRule (ruleArgs [firstSubP .. $]);
+      }
+    }
+
+    auto rArgLen = ruleArgs.length;
+    if (rArgLen > commonLen) {
+      auto bp = BranchingParam (ruleArgs [commonLen]);
+      auto subT = bp in branches;
+      if (subT) {
+        recurse (*subT, bp);
+        return;
+      }
+    }
+    // Didn't find on ruleArgs [commonLen], so it must be in null
+    auto nullInB = nullBP in branches;
+    assert (nullInB);
+    recurse (*nullInB, nullBP);
+  }
+
+  void toString (
+    scope void delegate (const (char)[]) sink
+    , uint tabsBefore = 0
+  ) {
+    auto tabSinks = '\t'.repeat (tabsBefore).array;
+    void sinkT (string s) {
+      sink (tabSinks);
+      sink (s);
+    }
+    sink ("RuleTree {\n");
+    sinkT ("C: [");
+    foreach (commonParam; commonParams) {
+      sink (commonParam.toString);
+      sink (", ");
+    }
+    sink ("]\n");
+    sinkT ("B:\n");
+    following.visit!(
+      (Rule r) {
+        sinkT ("\t");
+        sink (r.args.to!string);
+      }
+      , (Branches b) {
+        foreach (a; b.byKeyValue) {
+          sinkT ("\t");
+          sink (a.key.toString);
+          sink (": ");
+          (*a.value).toString (sink, tabsBefore + 1);
+          sink ("\n");
+        }
+      }
+    );
+    sink ("\n");
+    sinkT ("}");
   }
 }
 
@@ -321,13 +417,16 @@ unittest {
   auto biggerRule = Rule (biggerRArgs, justErr);
   // Matches the first part.
   assert (tree.matchRule (biggerRArgs) == rule);
-  tree.addRule (biggerRule, ruleScope);
+  tree.addRule (biggerRule);
   assert (tree.matchRule (biggerRArgs) == biggerRule);
   auto smallerRule = Rule (rArgs [0..1], justErr);
-  tree.addRule (smallerRule, ruleScope);
+  auto smallerRuleLeaf = tree.addRule (smallerRule);
   assert (tree.matchRule (rArgs [0..1]) == smallerRule);
   assert (tree.matchRule (rArgs) == rule);
   assert (tree.matchRule (biggerRArgs) == biggerRule);
+  tree.removeRule (biggerRArgs);
+  // Assert not there anymore.
+  assert (tree.matchRule (biggerRArgs) == rule);
 }
 
 import intrinsics;
