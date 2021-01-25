@@ -72,7 +72,40 @@ struct Type {
     return other.id == this.id;
   }
 }
-alias Var = Variant! (float, string, int);
+
+alias TypeOrErr = Variant! (Type, UserError);
+
+struct TypeScope {
+  Type [string] types;
+  TypeOrErr add (string identifier) {
+    auto toRet = TypeOrErr (UserError (
+      `Type ` ~ identifier ~ ` already exists in the scope`)
+    );
+    this.types.require (
+      identifier
+      , {
+        auto toAdd = Type (identifier);
+        toRet = TypeOrErr (toAdd);
+        return toAdd;
+      } ()
+    );
+    return toRet;
+  }
+}
+
+import parser : Expression;
+import std.typecons : Tuple;
+alias InputParam = Tuple! (string, `name`, uint, `index`);
+struct RTFunction {
+  InputParam [] inputNames;
+  Expression [] expressions;
+  // Mir seemed to have trouble calculating this struct's hash.
+  size_t toHash () const nothrow @safe {
+    return expressions.hashOf (inputNames.hashOf);
+  }
+}
+
+alias Var = Variant! (float, string, int, RTFunction);
 
 /// A value in the interpreter.
 struct RTValue {

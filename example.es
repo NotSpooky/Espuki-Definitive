@@ -1,6 +1,6 @@
 plus 4 \
 4
-apply { plus _ 3 }
+apply { I32 a: plus a 3 }
 /* Comment */
 plus _ /* Spooky */ 3 /*
 plus 4 _ */

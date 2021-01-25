@@ -9,6 +9,7 @@ Type F32;
 Type Function;
 
 RuleScope * globalRules;
+TypeScope globalTypes;
 
 Rule identity (Type type) {
   return Rule (
@@ -24,11 +25,11 @@ Rule identity (Type type) {
   );
 }
 static this () {
-  String = Type (`String`);
-  Identifier = Type (`Identifier`);
-  I32 = Type (`I32`);
-  F32 = Type (`F32`);
-  Function = Type (`Function`);
+  String = globalTypes.add (`String`).get!Type;
+  Identifier = globalTypes.add (`Identifier`).get!Type;
+  I32 = globalTypes.add (`I32`).get!Type;
+  F32 = globalTypes.add (`F32`).get!Type;
+  Function = globalTypes.add (`Function`).get!Type;
 
   globalRules = new RuleScope ([
     identity (String)

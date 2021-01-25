@@ -1,27 +1,108 @@
 module parser;
 
 import std.algorithm;
+import std.conv;
 import std.range;
-import lexer : ExpressionArg, Expression, Token;
+import lexer : Token;
 import intrinsics;
 import mir.algebraic;
+import std.array : Appender, array;
 debug import std.stdio;
-import execute : RTValue, Var, UserError;
+import execute;
+
+private union EArg {
+  string identifierOrSymbol;
+  RTValue literalValue;
+  Expression * subExpression;
+}
+
+alias ExpressionArg = TaggedVariant!EArg;
+
+/// Don't construct this directly, use 'parser.toExpression' function.
+struct Expression {
+
+  ExpressionArg [] args;
+  /// An expression with return value that isn't finished with the semicolon token.
+  /// is true, false otherwise.
+  bool producesUnderscore;
+  /// An expression gets a name when assigned to a variable.
+  /// Note that the implicit underscore isn't handled with this variable.
+  Nullable!string name;
+  /// Expressions with underscores or without a previous value passed
+  /// don't add the previous value as implicit first argument.
+  bool usesUnderscore = false;
+}
+
+import execute : Type, TypeOrSymbol, TypeScope, InputParam;
+struct RuleParamsWithArgs {
+  TypeOrSymbol [] ruleParams;
+  InputParam [] inputParams;
+}
+alias MaybeParams = Variant! (RuleParamsWithArgs, UserError);
+
+// Function syntax:
+/+
+{ I32 arg1, String arg2 -> RetType :
+  arg1 ...
+}
+
+function is stored on an RTValue, same as literals
++/
+
+/// Parses a list of tokens with format
+/// identifier * ((Type | Symbol identifier+) * identifier) ?
+MaybeParams ruleParams (Token [] tokens, TypeScope typeScope) {
+  Appender! (TypeOrSymbol []) rulePsToRet;
+  Appender! (InputParam []) paramsToRet;
+  
+  with (Token.Type) {
+    for (
+      uint i = 0
+      ; i < tokens.length
+      ; i ++
+    ) {
+      auto current = tokens [i];
+      if (current.type == identifier) {
+        rulePsToRet ~= TypeOrSymbol (current.strVal);
+      }
+      if (current.type == typeIdentifier) {
+        if (tokens.length < 2) {
+          return MaybeParams (UserError (
+            text (`Expected identifiers after `, current.strVal)
+          ));
+        }
+        auto type = current.strVal in typeScope.types;
+        if (!type) {
+          return MaybeParams (UserError (
+            text (`Couldn't find type `, current.strVal)
+          ));
+        }
+        rulePsToRet ~= TypeOrSymbol (*type);
+        i ++;
+        auto nextT = tokens [i];
+        assert (nextT.type == identifier, `TODO: Type constructors`);
+        paramsToRet ~= InputParam (nextT.strVal, i);
+      }
+    }
+  }
+  return MaybeParams (RuleParamsWithArgs (rulePsToRet [], paramsToRet []));
+}
 
 alias MaybeExpression = Variant! (Expression, UserError);
 /// Used to convert tokens to a list of:
-/// identifiers in case of references,
-/// strings in case of symbols
+/// strings in case of symbols or identifiers
 /// values in case of literals,
 /// ExpressionArgs in case of subexpressions (pointer used to allow self-references).
-MaybeExpression toExpression (Token [] tokens, bool producesUnderscore) {
+MaybeExpression toExpression (
+  Token [] tokens
+  , bool producesUnderscore
+  , TypeScope typeScope
+) {
   assert (!tokens.empty);
-  import std.array : Appender, array;
   Appender! (ExpressionArg []) toRet;
   for (; !tokens.empty; tokens.popFront ()) {
     auto token = tokens.front;
     with (Token.Type) {
-      import std.conv;
       switch (token.type) {
         case identifier:
           toRet ~= ExpressionArg (token.strVal);
@@ -38,20 +119,42 @@ MaybeExpression toExpression (Token [] tokens, bool producesUnderscore) {
           toRet ~= ExpressionArg (RTValue (String, Var (token.strVal)));
           break;
         case openingBracket:
+          // Note: This will also be used for storing graphs, in case there's no
+          // colon.
+          tokens.popFront ();
+          auto functionRuleParamEnd = tokens
+            .countUntil! (t => t.type == colon);
+          if (functionRuleParamEnd == -1) {
+            assert (0, `TODO: Subgraph syntax`);
+          }
+          auto maybeRuleP
+            = ruleParams (tokens [0.. functionRuleParamEnd], typeScope);
+          if (maybeRuleP._is!UserError) {
+            return MaybeExpression (maybeRuleP.get!UserError);
+          }
+          auto ruleP = maybeRuleP.get!RuleParamsWithArgs;
+          // Colon here, so + 1 to ignore it
+          tokens = tokens [functionRuleParamEnd + 1 .. $];
           auto untilBracket = tokens
-            .countUntil! (t => t.type == closingBracket) ();
+            .countUntil! (t => t.type == closingBracket);
           if (untilBracket == -1) {
             return MaybeExpression (UserError (`No matching '}' for '{'`));
           }
-          auto subExpr = toExpression (tokens [1 .. untilBracket], false);
-          if (subExpr._is! UserError) {
-            return subExpr;
-          } else {
-            assert (subExpr._is!Expression);
-            Expression * toAdd = new Expression;
-            *toAdd = subExpr.get!Expression;
-            toRet ~= ExpressionArg (toAdd);
+          auto funExpr = toExpression (
+            tokens [0 .. untilBracket]
+            , false // TODO: Check
+            , typeScope
+          );
+          if (funExpr._is!UserError) {
+            return MaybeExpression (funExpr.get!UserError);
           }
+          debug writeln (
+            `TODO: Allow multiple expressions in functions`
+          );
+          auto rtFunToRet = RTFunction (
+            ruleP.inputParams, [funExpr.get!Expression]
+          );
+          toRet ~= ExpressionArg (RTValue (Function, Var (rtFunToRet)));
           // Note: Closing bracket is popped at loop end.
           tokens = tokens [untilBracket .. $];
           break;

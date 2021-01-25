@@ -18,10 +18,12 @@ struct Token {
     , floatLiteral
     , integerLiteral
     , stringLiteral
-    , singleQuotSymbol
-    , identifier
-    , semicolon // Outside of this module, this shouldn't appear
-    , backslash // Ditto
+    , identifier            // For variable names and symbols
+    , typeIdentifier        // For types, starts with uppercase
+    , underscoreIdentifier  // _[0-9]+ has special meaning in this language
+    , colon
+    , semicolon             // Outside of this module, this shouldn't appear
+    , backslash             // Ditto
     , rightArrow
   }
   Type type;
@@ -35,37 +37,9 @@ struct Identifier {
 
 import mir.algebraic;
 import std.algorithm;
-import execute : RTValue, UserError;
+import execute : RTValue, UserError, TypeScope;
 
-private union EArg {
-  Identifier identifier;
-  string symbol;
-  RTValue literalValue;
-  Expression * subExpression;
-}
-
-alias ExpressionArg = TaggedVariant!EArg;
-
-/// Don't construct this directly, use 'parser.toExpression' function.
-struct Expression {
-
-  ExpressionArg [] args;
-  /// An expression with return value that isn't finished with the semicolon token.
-  /// is true, false otherwise.
-  bool producesUnderscore;
-  /// An expression gets a name when assigned to a variable.
-  /// Note that the implicit underscore isn't handled with this variable.
-  Nullable!string name;
-  /// Expressions with underscores or without a previous value passed
-  /// don't add the previous value as implicit first argument.
-  bool usesUnderscore () {
-    return args.any! (a => a.visit!(
-      (Identifier v) => v.identifier == `_`
-      , (v) => false
-    ));
-  }
-}
-
+import parser : Expression, toExpression;
 alias LexRet = Variant! (Expression [], UserError);
 
 import std.algorithm;
@@ -75,7 +49,7 @@ import std.algorithm;
 /// Tries to generate a list of expressions from text.
 /// Note: Doesn't return a list of tokens.
 /// Those are handled here direclty or by using parser.toExpression
-LexRet lex (R)(ref R inputLines) {
+LexRet lex (R)(R inputLines, TypeScope typeScope) {
   Appender! (Expression []) toRet;
   // Outside the loop as output lines might not have a 1:1 relationship with
   // input lines in cases such as empty/commented lines or '\' at the end of
@@ -87,7 +61,6 @@ LexRet lex (R)(ref R inputLines) {
 
   import std.array;
   import std.string;
-  import parser : toExpression;
 
   // Note: Jumping to this label doesn't execute a popFront at the start.
   lexLine:
@@ -166,6 +139,9 @@ LexRet lex (R)(ref R inputLines) {
           case ']':
             type = closingSquareBracket;
             break;
+          case ':':
+            type = colon;
+            break;
           case ';':
             auto currentLineData = currentLineTokens [];
             if (currentLineData.length == 0) {
@@ -175,6 +151,7 @@ LexRet lex (R)(ref R inputLines) {
               auto expr = toExpression (
                 currentLineData
                 , false
+                , typeScope
               );
               if (expr._is! (Expression)) {
                 toRet ~= expr.get!Expression;
@@ -245,8 +222,9 @@ LexRet lex (R)(ref R inputLines) {
           enum regexTypes = [
             RegexType (ctRegex!`^[0-9]+\.[0-9]+`, floatLiteral)
             , RegexType (ctRegex!`^[0-9]+`, integerLiteral)
-            , RegexType (ctRegex!`^[\w]+`, identifier)
-            , RegexType (ctRegex!`^'[\w]+`, singleQuotSymbol)
+            , RegexType (ctRegex!`^\p{Ll}[\w]*`, identifier)
+            , RegexType (ctRegex!`^\p{Lu}[\w]+`, typeIdentifier)
+            , RegexType (ctRegex!`^\_[0-9]*`, underscoreIdentifier)
             , RegexType (ctRegex!`^\\`, backslash) // Might be better to handle above
           ];
           bool foundMatchingRegex = false;
@@ -281,6 +259,7 @@ LexRet lex (R)(ref R inputLines) {
     auto expr = toExpression (
       currentLineData
       , true
+      , typeScope
     );
     if (expr._is!Expression) {
       toRet ~= expr.get!Expression;

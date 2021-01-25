@@ -2,16 +2,17 @@ module app;
 
 import std.stdio;
 import execute;
-import mir.algebraic : visit;
+import lexer : lex;
 
 void main () {
-  /+
+  import std.algorithm;
   import std.conv : to;
-  executeFromLines (File (`example.es`).byLineCopy ()).visit !(
-    (RTValue val) => writeln (val.value.visit! (to!string))
-    , (err) => err.writeln
+  import mir.algebraic : visit;
+  import intrinsics :globalTypes;
+  lex (File (`example.es`).byLineCopy (), globalTypes).visit! (
+    (UserError ue) => writeln (`Error: `, ue.message)
+    , (expressions) => writeln (expressions)
   );
-  +/
 }
 
 /+
