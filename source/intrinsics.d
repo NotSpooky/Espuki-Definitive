@@ -1,5 +1,7 @@
 module intrinsics;
 
+import std.algorithm;
+import std.conv;
 import execute;
 
 Type String;
@@ -24,6 +26,17 @@ Rule identity (Type type) {
     }
   );
 }
+
+Type [Type []] sumTypeInstances;
+Rule [] instanceSumType (Type [] types) {
+  auto existing = types in sumTypeInstances;
+  Type sumType = existing
+    ? (*existing) : Type (types.map!`a.name`.joiner (` |`).to!string);
+  debug import std.stdio;
+  debug writeln (`TODO: Implement pattern matching so that I can match the type at the beginning`);
+  return [];
+}
+
 static this () {
   String = globalTypes.add (`String`).get!Type;
   Identifier = globalTypes.add (`Identifier`).get!Type;

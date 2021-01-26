@@ -105,6 +105,14 @@ struct RTFunction {
   }
 }
 
+auto apply (RTFunction fun, RTValue [] args) {
+  RTValue [string] identifierScope;
+  assert (fun.inputNames.length == args.length);
+  foreach (i, arg; args) {
+    identifierScope [fun.inputNames [i].name] = arg;
+  }
+  
+}
 alias Var = Variant! (float, string, int, RTFunction);
 
 /// A value in the interpreter.

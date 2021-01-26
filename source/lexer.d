@@ -31,10 +31,6 @@ struct Token {
 
 debug import std.stdio;
 
-struct Identifier {
-  string identifier;
-}
-
 import mir.algebraic;
 import std.algorithm;
 import execute : RTValue, UserError, TypeScope;
