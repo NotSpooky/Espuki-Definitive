@@ -16,14 +16,16 @@ TypeScope globalTypes;
 Rule identity (Type type) {
   return Rule (
     // Single int returns itself
-    [TypeOrSymbol (type)], (
-      RTValue [] args
-      , RuleScope [] scopes
-      , bool usedUnderscore
-    ) {
-      assert (args.length == 1);
-      return ValueOrErr (args [0]);
-    }
+    [TypeOrSymbol (type)]
+    , [Pattern ([MaybeValue (null)], (
+        RTValue [] args
+        , RuleScope [] scopes
+        , bool usedUnderscore
+      ) {
+        assert (args.length == 1);
+        return ValueOrErr (args [0]);
+      }
+    )]
   );
 }
 

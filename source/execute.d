@@ -57,6 +57,7 @@
 
 import mir.algebraic;
 import std.conv : text, to;
+import std.typecons : Tuple, tuple;
 
 private uint lastTypeId;
 struct Type {
@@ -113,7 +114,6 @@ auto apply (RTFunction fun, RTValue [] args) {
   }
   
 }
-alias Var = Variant! (float, string, int, RTFunction);
 
 /// A value in the interpreter.
 struct RTValue {
@@ -163,15 +163,27 @@ auto executeFromLines (R)(R lines) if (is (ElementType!R == string)) {
 }
 
 alias TypeOrSymbol = Variant! (Type, string);
+alias Var = Variant! (float, string, int, RTFunction);
+alias MaybeValue = Nullable!Var;
+alias Pattern = Tuple! (MaybeValue [], `pattern`, ApplyFun, `apply`);
+
 struct Rule {
   @disable this ();
   TypeOrSymbol [] args;
-  // Can assume that execute has correct arg types.
-  ApplyFun execute;
-  this (TypeOrSymbol [] args, ApplyFun execute) {
+  Pattern [] patterns;
+  /// Version for just matching by type.
+  this (TypeOrSymbol [] args, ApplyFun apply) {
+    this (args, [Pattern (MaybeValue (null).repeat (args.length).array, apply)]);
+  }
+  /// Version for several patterns. 
+  this (TypeOrSymbol [] args, Pattern [] patterns) {
     assert (args.length > 0, `Rule with no args`);
+    assert (
+      patterns.all! (a => a.pattern.length == args.length)
+      , `Rule pattern values should be of the same length as the rule args`
+    );
     this.args = args;
-    this.execute = execute;
+    this.patterns = patterns;
   }
 }
 
@@ -224,7 +236,6 @@ struct RuleTree {
     assert (branchingPos <= commonLen);
     assert (branchingPos <= rArgsLen);
 
-    import std.typecons : Tuple, tuple;
     Tuple!(BranchingParam, TypeOrSymbol []) newBranch (TypeOrSymbol [] rules) {
       auto branchingKey = BranchingParam (null);
       TypeOrSymbol [] subTreeCommon;
