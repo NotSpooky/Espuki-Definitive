@@ -204,7 +204,7 @@ LexRet asExpressions (R)(R inputLines, TypeScope typeScope) {
                 assert (0, `TODO: Multi-line string literals`);
               } else if (inputToUse.front == '"') {
                 auto len = line.length - inputToUse.length + 1;
-                currentLineTokens ~= Token (line [0 .. len], stringLiteral);
+                currentLineTokens ~= Token (line [1 .. len -1], stringLiteral);
                 line = line.drop (len);
                 break;
               } else {
