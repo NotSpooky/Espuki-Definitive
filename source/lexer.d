@@ -203,7 +203,6 @@ LexRet asExpressions (R)(R inputLines, TypeScope typeScope) {
               } else if (inputToUse.empty) {
                 assert (0, `TODO: Multi-line string literals`);
               } else if (inputToUse.front == '"') {
-                //writeln (`Finished string :D`);
                 auto len = line.length - inputToUse.length + 1;
                 currentLineTokens ~= Token (line [0 .. len], stringLiteral);
                 line = line.drop (len);
@@ -214,6 +213,7 @@ LexRet asExpressions (R)(R inputLines, TypeScope typeScope) {
                 inputToUse.popFront ();
               }
             }
+            goto continueLine;
           }
           enum regexTypes = [
             RegexType (ctRegex!`^[0-9]+\.[0-9]+`, floatLiteral)

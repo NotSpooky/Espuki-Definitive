@@ -7,12 +7,14 @@ void main () {
   import std.algorithm;
   import std.conv : to;
   import mir.algebraic : visit;
-  auto result = executeFromLines (File (`example.es`).byLineCopy ());
-  if (result._is!RTValue) {
-    result.get!RTValue.value.visit! ((a) { writeln (a); });
-  }
+  auto result = executeFromLines (File (`hello.es`).byLineCopy ());
+  result.visit! (
+    (RTValue val) { val.value.visit! ((a) { /+writeln (a); +/ }); }
+    , (UserError ue) {
+      stderr.writeln (`Error `, ue.message);
+    }
+  );
 }
-
 /+
 
 

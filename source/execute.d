@@ -240,8 +240,8 @@ RTValueOrErr executeFromExpression (
     , (string symbol) => symbol
   )).array;
 
-  debug writeln (`Args: `, args);
-  debug writeln (`Params: `, params);
+  // debug writeln (`Args: `, args);
+  // debug writeln (`Params: `, params);
 
   return lastMatchResult (ruleTree, params, args);
 }
@@ -260,11 +260,11 @@ RTValueOrErr executeFromLines (R)(R lines) if (is (ElementType!R == string)) {
         if (result._is!UserError) {
           return result;
         } else {
-          debug writeln (`res: `, result.get!RTValue.value.visit! (a => a.to!string));
+          // debug writeln (`res: `, result.get!RTValue.value.visit! (a => a.to!string));
           lastResult = [result.get!RTValue];
         }
       }
-      debug writeln (`TODO: Allow returning multiple values`);
+      // TODO: Allow returning multiple values.
       return RTValueOrErr (lastResult [0]);
     }
     , (UserError ue) {

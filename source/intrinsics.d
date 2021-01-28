@@ -51,6 +51,7 @@ static this () {
   globalRules = new RuleScope ([
     identity ([Kind, String, Symbol, I32, F32, Function])
     , fromD!plus
+    , fromD!writeString
     /+
     , Rule (
       [TypeOrSymbol (`apply`), TypeOrSymbol (I32), TypeOrSymbol (Function)], (
@@ -83,6 +84,11 @@ static this () {
 
 extern (C) {
   int plus (int a, int b) { return a + b; }
+  string writeString (string toWrite) {
+    import std.stdio;
+    writeln (toWrite);
+    return toWrite;
+  }
 }
 
 template TypeMapping (DType) {
@@ -98,12 +104,11 @@ template TypeMapping (DType) {
 }
 
 import std.conv : to, text;
-Rule fromD (alias Fun) () {
+Rule fromD (alias Fun) (string funName = Fun.mangleof) {
   import std.traits;
   alias RetType = ReturnType!Fun;
   alias Params = Parameters!Fun;
-  enum FunName = Fun.mangleof;
-  TypeOrSymbol [] params = [TypeOrSymbol (FunName)];
+  TypeOrSymbol [] params = [TypeOrSymbol (funName)];
   foreach (Param; Params) {
     params ~= TypeOrSymbol (TypeMapping!Param);
   }
