@@ -19,8 +19,8 @@ Rule identity (Type [] types) {
     // Single Type instanceOfType returns itself
     [TypeOrSymbol (Kind)]
     , (
-      RTValue [] args
-      , in RuleTree ruleTree
+      in RTValue [] args
+      , ref RuleTree ruleTree
     ) {
       debug import std.stdio;
       debug writeln (`Identity args `, args);
@@ -108,8 +108,8 @@ Rule fromD (alias Fun) () {
     params ~= TypeOrSymbol (TypeMapping!Param);
   }
   return Rule (params, (
-    RTValue [] args
-    , in RuleTree ruleTree
+    in RTValue [] args
+    , ref RuleTree ruleTree
   ) {
       import std.stdio;
       // TODO: Foreach with mixin that sets all the values from args.

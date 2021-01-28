@@ -155,6 +155,56 @@ struct MatchWithPos {
     }
   }
 
+/// Finds and applies matches until the args/params are exhausted.
+RTValueOrErr lastMatchResult (
+  ref RuleTree ruleTree
+  , in TypeOrSymbol [] params
+  , in RTValueOrSymbol [] args) {
+  assert (params.length == args.length);
+
+  return ruleTree.matchRule (params).visit! (
+    // No rule matches.
+    (typeof (null)) => RTValueOrErr (
+      UserError (`Couldn't match rule for `, args)
+    ), (MatchWithPos mwp) {
+      // There's a match and it ends at mwp.position.
+      // Apply the rule corresponding to the found match.
+      auto matchResultVal = RTValueOrErr (mwp.rule.apply (
+        args
+          .filter! (a => a._is!RTValue)
+          .map! (a => a.get!RTValue)
+          .array
+        , ruleTree
+      ));
+      return matchResultVal.visit! (
+        // If errored, just pass it.
+        (UserError ue) => matchResultVal
+        , (RTValue val) {
+          // Else, this value becomes the first argument for the next match.
+          const cutPoint = mwp.position;
+          if (cutPoint == args.length) {
+            // Finished matching all the args.
+            return matchResultVal;
+          } else {
+            // Still more to match, we add the current result as first arg/param
+            // Could be made faster if we avoid concatenation.
+            return lastMatchResult (
+              ruleTree
+              , [TypeOrSymbol (val.type)] ~ params [cutPoint .. $]
+              , [RTValueOrSymbol (val)] ~ args [cutPoint .. $]
+            );
+          }
+        }
+      );
+    }
+  );
+}
+
+/// Finds appropriate rules to match the expression and returns the result
+/// of applying those rules to the match.
+/// If the best match doesn't comprise the full expression, it's result is given
+/// as the first argument for another match.
+/// This process is repeated until the expression is exhausted or an error occurs.
 RTValueOrErr executeFromExpression (
   in Expression expression
   , RTValue [] lastResult
@@ -189,39 +239,11 @@ RTValueOrErr executeFromExpression (
     (RTValue val) => val.type
     , (string symbol) => symbol
   )).array;
+
   debug writeln (`Args: `, args);
   debug writeln (`Params: `, params);
-  auto result = ruleTree.matchRule (params).visit! (
-    (typeof (null)) => RTValueOrErr (
-      UserError (`Couldn't match rule for `, args)
-    ), (MatchWithPos mwp) {
-      // TODO: Apply all the matches, not just the first.
-      return RTValueOrErr (mwp.rule.apply (
-        args
-          .filter! (a => a._is!RTValue)
-          .map! (a => a.get!RTValue)
-          .array
-        , ruleTree
-      ));
-    }
-  );
-  return result;
-  /+
-  // TODO:
-  // >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
-  // Convert the strings to a symbol or RTValue as needed.
-  // Use the values for rule apply
-  // Merge into a sumtype of RTValue | UserError
-  // <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
 
-
-  // TODO: Get all the rules, not just one.
-  return ruleTree.matchRule (asStringOrValue).visit! (
-    , (MatchWithPos mwp) {
-      mwp.rule.apply ();
-    }
-  );
-  +/
+  return lastMatchResult (ruleTree, params, args);
 }
 debug import std.stdio;
 import std.range;
@@ -240,7 +262,6 @@ RTValueOrErr executeFromLines (R)(R lines) if (is (ElementType!R == string)) {
         } else {
           debug writeln (`res: `, result.get!RTValue.value.visit! (a => a.to!string));
           lastResult = [result.get!RTValue];
-        //debug writeln (ruleTree.matchRule (expression));
         }
       }
       debug writeln (`TODO: Allow returning multiple values`);
@@ -256,8 +277,8 @@ RTValueOrErr executeFromLines (R)(R lines) if (is (ElementType!R == string)) {
 alias Var = Variant! (float, string, int, RTFunction);
 alias MaybeValue = Nullable!Var;
 alias ApplyFun = ValueOrErr delegate (
-  RTValue [] inputs
-  , in RuleTree ruleTree
+  in RTValue [] inputs
+  , ref RuleTree ruleTree
 );
 /// mir.algebraic.Variant seems to have trouble with ApplyFun so we wrap it.
 struct ApplyFunContainer {
@@ -317,7 +338,7 @@ struct PatternTree {
     this.moreSpecificPatterns = moreSpecificPatterns;
   }
 
-  MaybeApplyFun bestMatchFor (RTValue [] inputs) {
+  MaybeApplyFun bestMatchFor (in RTValue [] inputs) {
     if (! common.params.all! (c => inputs [c.position] == c.value)) {
       return MaybeApplyFun (NoMatch ());
     }
@@ -365,7 +386,7 @@ struct Rule {
   /// If no pattern fits, an UserError is returned.
   /// THIS DOESN'T DO THE MATCHING IN THE TREE.
   /// Check out the RuleTree.matchRule for that.
-  RTValueOrErr apply (RTValue [] inputs, in RuleTree ruleTree) {
+  RTValueOrErr apply (in RTValue [] inputs, ref RuleTree ruleTree) {
     auto fitting = this.patternTree.bestMatchFor (inputs);
     return fitting.visit! (
       (NoMatch nm) => RTValueOrErr (UserError (`No rule matches `, inputs))
@@ -539,7 +560,7 @@ struct RuleTree {
   /// If there are multiple rules that match, the longest one is given priority.
   /// Note that a match might not be of the entire ruleArgs.
   /// null is returned if no rule matches
-  MatchRet matchRule (TypeOrSymbol [] ruleArgs) {
+  MatchRet matchRule (in TypeOrSymbol [] ruleArgs) {
     foreach (i, ruleArg; ruleArgs) {
       if (commonParams.length == i) {
         // We still have more ruleArgs.
