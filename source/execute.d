@@ -171,7 +171,15 @@ RTValueOrErr executeFromExpression (
   ] : []) ~ expression.args.map! (a =>
     a.visit! (
       // TODO: Execute subexpression to get a value.
-      (const Expression * subExpr) => RTValueOrSymbol (`TODO`)
+      (const Expression * subExpr) {
+        auto subExprRet = executeFromExpression (*subExpr, lastResult, ruleTree);
+        if (subExprRet._is!RTValue) {
+          lastResult = [subExprRet.get!RTValue];
+          return RTValueOrSymbol (lastResult [0]);
+        } else {
+          throw new Exception (subExprRet.get!UserError.message);
+        }
+      }
       // TODO: Get identifier values from scope.
       , (a) => RTValueOrSymbol (a)
     )
@@ -526,7 +534,6 @@ struct RuleTree {
   }
 
   enum nullRule = MatchRet (null);
-  // TODO: Return index or equivalent
   /// Checks if the beginning of ruleArgs matches any rule stored in this tree
   /// and returns it.
   /// If there are multiple rules that match, the longest one is given priority.
