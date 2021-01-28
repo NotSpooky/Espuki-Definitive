@@ -163,7 +163,6 @@ RTValueOrErr executeFromExpression (
     RTValueOrSymbol (lastResult [0])
   ] : []) ~ expression.args.map! (a =>
     a.visit! (
-      // TODO: Execute subexpression to get a value.
       (const Expression * subExpr) {
         auto subExprRet = executeFromExpression (*subExpr, lastResult, ruleTree);
         if (subExprRet._is!RTValue) {
@@ -357,6 +356,7 @@ struct RuleTree {
       this.addRule (rule);
     }
   }
+
   private this (
     TypeOrSymbol [] commonParams, BranchesOrRule following, ParentTreeRef parent
   ) {
@@ -510,15 +510,20 @@ struct RuleTree {
         );
       }
       if (ruleArg != this.commonParams [i]) {
+        // Different arg to what rule expected, return no match.
         return nullRule;
       }
     }
     if (ruleArgs.length == commonParams.length) {
+      // Args matched this tree.
+      // So either, this tree has the rule or we search the null branch.
       return this.following.visit! (
         (Rule r) => MatchRet (r, commonParams.length) // Exact match
         , (Branches branches) {
           auto nullT = nullBP in branches;
-          if (nullT) { // Also exact match if successful.
+          if (nullT) {
+            // Also exact match if successful.
+            // The branch might have more common params which triggers an error.
             return withOffset ((*nullT).matchRule ([]), commonParams.length);
           }
           return nullRule;
@@ -577,6 +582,7 @@ struct RuleTree {
     recurse (*nullInB, nullBP);
   }
 
+  /// Uses a multi-line indented approach.
   void toString (
     scope void delegate (const (char)[]) sink
     , uint tabsBefore = 0
@@ -617,39 +623,36 @@ struct RuleTree {
 unittest {
   auto ruleScope = RuleScope ([]);
   auto justErr = delegate (
-    RTValue [] apply
-    , RuleScope [] scopes
+    in RTValue [] apply
+    , ref RuleTree ruleTree
   ) {
     return ValueOrErr ();
   };
 
   auto rArgs = [TypeOrSymbol (`Example`), TypeOrSymbol (`rule`)];
   auto rule = Rule (rArgs, justErr);
-  auto tree = RuleTree (
-    [rArgs [0], rArgs [1]],
-    BranchesOrRule (rule)
-  );
+  auto tree = RuleTree ([rule]);
 
   // Test splitting at bigger pos:
   auto biggerRArgs = rArgs ~ TypeOrSymbol (I32);
   auto biggerRule = Rule (biggerRArgs, justErr);
   // Matches the first part.
-  assert (tree.matchRule (biggerRArgs) == rule);
+  assert (tree.matchRule (biggerRArgs).get!MatchWithPos.rule == rule);
   tree.addRule (biggerRule);
-  assert (tree.matchRule (biggerRArgs) == biggerRule);
+  assert (tree.matchRule (biggerRArgs).get!MatchWithPos.rule == biggerRule);
   auto smallerRule = Rule (rArgs [0..1], justErr);
   tree.addRule (smallerRule);
-  assert (tree.matchRule (rArgs [0..1]) == smallerRule);
-  assert (tree.matchRule (rArgs) == rule);
-  assert (tree.matchRule (biggerRArgs) == biggerRule);
+  assert (tree.matchRule (rArgs [0..1]).get!MatchWithPos.rule == smallerRule);
+  assert (tree.matchRule (rArgs).get!MatchWithPos.rule == rule);
+  assert (tree.matchRule (biggerRArgs).get!MatchWithPos.rule == biggerRule);
   tree.removeRule (biggerRArgs);
   // Assert not there anymore.
-  assert (tree.matchRule (biggerRArgs) == rule);
+  assert (tree.matchRule (biggerRArgs).get!MatchWithPos.rule == rule);
   // Test with different args.
   auto differentRArgs = [TypeOrSymbol (`Hello`), TypeOrSymbol (`There`)];
   auto differentRule = Rule (differentRArgs, justErr);
   tree.addRule (differentRule);
-  assert (tree.matchRule (differentRArgs) == differentRule);
+  assert (tree.matchRule (differentRArgs).get!MatchWithPos.rule == differentRule);
   tree.removeRule (differentRArgs);
   assert (tree.matchRule (differentRArgs).isNull ());
 }
