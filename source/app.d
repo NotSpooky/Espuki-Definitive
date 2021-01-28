@@ -3,11 +3,15 @@ module app;
 import std.stdio;
 import execute;
 
-void main () {
+void main (string [] args) {
+  if (args.length != 2) {
+    stderr.writeln (`Usage: espuki file.es`);
+    return;
+  }
   import std.algorithm;
   import std.conv : to;
   import mir.algebraic : visit;
-  auto result = executeFromLines (File (`hello.es`).byLineCopy ());
+  auto result = executeFromLines (File (args [1]).byLineCopy ());
   result.visit! (
     (RTValue val) { val.value.visit! ((a) { /+writeln (a); +/ }); }
     , (UserError ue) {
