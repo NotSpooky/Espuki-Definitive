@@ -1,1 +1,1 @@
-writeString "Hello world"
+writeln "Hello world"

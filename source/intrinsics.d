@@ -25,7 +25,7 @@ Rule identity (Type [] types) {
       debug import std.stdio;
       debug writeln (`Identity args `, args);
       assert (args.length == 1);
-      return ValueOrErr (args [0]);
+      return RTValueOrErr (args [0]);
     }
   );
 }
@@ -50,35 +50,29 @@ static this () {
 
   globalRules = new RuleScope ([
     identity ([Kind, String, Symbol, I32, F32, Function])
-    , fromD!plus
-    , fromD!writeString
-    /+
+    , fromD!plus (automaticParams!plus (1))
+    , fromD!writeString (automaticParams!writeString (0, `writeln`))
     , Rule (
-      [TypeOrSymbol (`apply`), TypeOrSymbol (I32), TypeOrSymbol (Function)], (
-        RTValue [] args
-        , RuleScope [] scopes
-        , bool usedUnderscore
+      [TypeOrSymbol (I32), TypeOrSymbol (`apply`), TypeOrSymbol (Function)], (
+        in RTValue [] args
+        , ref RuleTree ruleTree
       ) {
         import std.stdio;
-        assert (args.length == 3);
-        writeln (
+        assert (args.length == 2);
+        /*debug writeln (
           "Apply called, will now execute with:\n\t"
-          , args [2].value, /+"\n\t", scopes,+/ "\n\t", lastIdScope, "\n\t> Used underscore? ", usedUnderscore
+          , args [0].value, ` in `, args [1].value
+        );*/
+        import parser : Expression;
+        auto result = executeFromExpressions (
+          args [1].value.get! (Expression [])
+          , [args [0]]
+          , ruleTree
         );
-        auto returned = executeFromValues (
-          args [2].value.get!AsValueListRet
-          , scopes
-          , lastIdScope
-          , usedUnderscore
-        );
-        if (returned.isNull ()) {
-          return ValueOrErr ();
-        } else {
-          return ValueOrErr (lastIdScope.vals [`_`]);
-        }
+        // debug writeln (`Apply result: `, result);
+        return result;
       }
     )
-    +/
   ]);
 }
 
@@ -103,15 +97,25 @@ template TypeMapping (DType) {
   }
 }
 
-import std.conv : to, text;
-Rule fromD (alias Fun) (string funName = Fun.mangleof) {
-  import std.traits;
-  alias RetType = ReturnType!Fun;
-  alias Params = Parameters!Fun;
-  TypeOrSymbol [] params = [TypeOrSymbol (funName)];
-  foreach (Param; Params) {
+import std.traits;
+TypeOrSymbol [] automaticParams (alias Fun)(
+  size_t nameLocation = 0
+  , string name = Fun.mangleof
+) {
+  alias DParams = Parameters!Fun;
+  TypeOrSymbol [] params;
+  foreach (Param; DParams) {
     params ~= TypeOrSymbol (TypeMapping!Param);
   }
+  return params [0 .. nameLocation]
+    ~ TypeOrSymbol (name)
+    ~ params [nameLocation .. $];
+}
+
+import std.conv : to, text;
+Rule fromD (alias Fun) (TypeOrSymbol [] params = automaticParams!Fun) {
+  alias RetType = ReturnType!Fun;
+  alias Params = Parameters!Fun;
   return Rule (params, (
     in RTValue [] args
     , ref RuleTree ruleTree
@@ -139,7 +143,7 @@ Rule fromD (alias Fun) (string funName = Fun.mangleof) {
         ~ q{);}
       );
       import std.variant;
-      return ValueOrErr (RTValue (TypeMapping!RetType, Var (result)));
+      return RTValueOrErr (RTValue (TypeMapping!RetType, Var (result)));
     }
   );
 }

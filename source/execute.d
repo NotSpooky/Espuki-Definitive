@@ -43,10 +43,11 @@ alias InputParam = Tuple! (string, `name`, uint, `index`);
 struct RTFunction {
   InputParam [] inputNames;
   Expression [] expressions;
+  /+
   // Mir seemed to have trouble calculating this struct's hash.
-  size_t toHash () const nothrow @safe {
+  size_t toHash () const nothrow {
     return expressions.hashOf (inputNames.hashOf);
-  }
+  }+/
 }
 
 auto apply (RTFunction fun, RTValue [] args) {
@@ -83,7 +84,6 @@ struct UserError {
   }
 }
 
-alias ValueOrErr = Nullable!RTValue;
 alias RTValueOrErr = Variant! (RTValue, UserError);
 
 alias TypeOrSymbol = Variant! (Type, string);
@@ -150,7 +150,7 @@ RTValueOrErr lastMatchResult (
 /// This process is repeated until the expression is exhausted or an error occurs.
 RTValueOrErr executeFromExpression (
   in Expression expression
-  , RTValue [] lastResult
+  , in RTValue [] lastResult
   , ref RuleTree ruleTree
 ) {
   assert (
@@ -166,8 +166,8 @@ RTValueOrErr executeFromExpression (
       (const Expression * subExpr) {
         auto subExprRet = executeFromExpression (*subExpr, lastResult, ruleTree);
         if (subExprRet._is!RTValue) {
-          lastResult = [subExprRet.get!RTValue];
-          return RTValueOrSymbol (lastResult [0]);
+          auto result = subExprRet.get!RTValue;
+          return RTValueOrSymbol (result);
         } else {
           throw new Exception (subExprRet.get!UserError.message);
         }
@@ -187,6 +187,27 @@ RTValueOrErr executeFromExpression (
 
   return lastMatchResult (ruleTree, params, args);
 }
+
+/// Chains multiple expressions together and returns the last one's return value
+/// Can return UserError on error.
+RTValueOrErr executeFromExpressions (
+  in Expression [] expressions
+  , RTValue [] lastResult
+  , ref RuleTree ruleTree
+) {
+  foreach (expression; expressions) {
+    auto result = executeFromExpression (expression, lastResult, ruleTree);
+    if (result._is!UserError) {
+      return result;
+    } else {
+      // debug writeln (`res: `, result.get!RTValue.value.visit! (a => a.to!string));
+      lastResult = [result.get!RTValue];
+    }
+  }
+  // TODO: Allow returning multiple values.
+  return RTValueOrErr (lastResult [0]);
+}
+
 debug import std.stdio;
 import std.range;
 RTValueOrErr executeFromLines (R)(R lines) if (is (ElementType!R == string)) {
@@ -194,20 +215,9 @@ RTValueOrErr executeFromLines (R)(R lines) if (is (ElementType!R == string)) {
   import parser : Expression;
   import intrinsics : globalTypes, globalRules;
   auto ruleTree = RuleTree (globalRules.rules);
-  RTValue [] lastResult = [];
   return asExpressions (lines, globalTypes).visit! (
     (Expression [] expressions) { 
-      foreach (expression; expressions) {
-        auto result = executeFromExpression (expression, lastResult, ruleTree);
-        if (result._is!UserError) {
-          return result;
-        } else {
-          // debug writeln (`res: `, result.get!RTValue.value.visit! (a => a.to!string));
-          lastResult = [result.get!RTValue];
-        }
-      }
-      // TODO: Allow returning multiple values.
-      return RTValueOrErr (lastResult [0]);
+      return executeFromExpressions (expressions, [], ruleTree);
     }
     , (UserError ue) {
       stderr.writeln (`Error: `, ue.message);
@@ -216,9 +226,9 @@ RTValueOrErr executeFromLines (R)(R lines) if (is (ElementType!R == string)) {
   );
 }
 
-alias Var = Variant! (float, string, int, RTFunction);
+alias Var = Variant! (float, string, int, Expression []);
 alias MaybeValue = Nullable!Var;
-alias ApplyFun = ValueOrErr delegate (
+alias ApplyFun = RTValueOrErr delegate (
   in RTValue [] inputs
   , ref RuleTree ruleTree
 );
@@ -309,12 +319,7 @@ struct Rule {
     auto fitting = this.patternTree.bestMatchFor (inputs);
     return fitting.visit! (
       (NoMatch nm) => RTValueOrErr (UserError (`No rule matches `, inputs))
-      , (ApplyFunContainer af) => af.applyFun (inputs, ruleTree).visit!(
-
-        (typeof (null)) => RTValueOrErr (UserError (`Error executing `, this, ` with `, inputs))
-        , (RTValue result) => RTValueOrErr (result)
-
-      )
+      , (ApplyFunContainer af) => af.applyFun (inputs, ruleTree)
       , (UserError ue) => RTValueOrErr (ue)
     );
   }
@@ -626,7 +631,7 @@ unittest {
     in RTValue [] apply
     , ref RuleTree ruleTree
   ) {
-    return ValueOrErr ();
+    return RTValueOrErr (`Not implemented`);
   };
 
   auto rArgs = [TypeOrSymbol (`Example`), TypeOrSymbol (`rule`)];

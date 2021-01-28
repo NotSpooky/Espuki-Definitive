@@ -1,12 +1,12 @@
-plus 4 \
+4 plus \
 4
-apply { I32 a: plus a 3 }
+apply { plus 3 }
 /* Comment */
-plus _ /* Spooky */ 3 /*
+_ plus /* Spooky */ 3 /*
 plus 4 _ */
 /+ Nestable comment :D +/
 /+ Now /+ going +/
  another level deep +/
 plus 2 ;
-plus 3 4 -> exampleVar
+// 3 plus 4 -> exampleVar
 

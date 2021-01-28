@@ -31,6 +31,21 @@ struct Expression {
   /// Expressions with underscores or without a previous value passed
   /// don't add the previous value as implicit first argument.
   bool usesUnderscore = false;
+
+
+  nothrow @safe size_t toHash () const {
+    return toHash (0);
+  }
+  nothrow @safe size_t toHash (size_t preHash) const {
+    preHash = producesUnderscore.hashOf (name.hashOf (producesUnderscore.hashOf ()));
+    foreach (arg; args) {
+      arg.visit! (
+        (Expression * subExpression) { preHash = (* subExpression).toHash (preHash); }
+        , (a) { a.hashOf (preHash); }
+      );
+    }
+    return preHash;
+  }
 }
 
 import execute : Type, TypeOrSymbol, TypeScope, InputParam;
@@ -88,6 +103,8 @@ MaybeParams ruleParams (Token [] tokens, TypeScope typeScope) {
   return MaybeParams (RuleParamsWithArgs (rulePsToRet [], paramsToRet []));
 }
 
+struct Success {}
+alias SuccessOrError = Variant! (Success, UserError);
 alias MaybeExpression = Variant! (Expression, UserError);
 /// Used to convert tokens to a list of:
 /// strings in case of symbols or identifiers
@@ -124,39 +141,52 @@ MaybeExpression toExpression (
           tokens.popFront ();
           auto functionRuleParamEnd = tokens
             .countUntil! (t => t.type == colon);
+
+          SuccessOrError untilBracketToExpressions () {
+            auto untilBracket = tokens
+              .countUntil! (t => t.type == closingBracket);
+            if (untilBracket == -1) {
+              return SuccessOrError (UserError (`No matching '}' for '{'`));
+            }
+            auto funExpr = toExpression (
+              tokens [0 .. untilBracket]
+              , false // TODO: Check
+              , typeScope
+            );
+            if (funExpr._is!UserError) {
+              return SuccessOrError (funExpr.get!UserError);
+            }
+            debug writeln (
+              `TODO: Allow multiple expressions in functions`
+            );
+            toRet ~= ExpressionArg (RTValue (Function, Var (
+              [funExpr.get!Expression]
+            )));
+            // Note: Closing bracket is popped at loop end.
+            tokens = tokens [untilBracket .. $];
+            return SuccessOrError (Success ());
+          }
           if (functionRuleParamEnd == -1) {
-            assert (0, `TODO: Subgraph syntax`);
+            // No function rule params.
+            auto tried = untilBracketToExpressions ();
+            if (tried._is!UserError) {
+              return MaybeExpression (tried.get!UserError);
+            }
+          } else {
+            // There are function rule params.
+            auto maybeRuleP
+              = ruleParams (tokens [0.. functionRuleParamEnd], typeScope);
+            if (maybeRuleP._is!UserError) {
+              return MaybeExpression (maybeRuleP.get!UserError);
+            }
+            auto ruleP = maybeRuleP.get!RuleParamsWithArgs;
+            // Colon here, so pop it.
+            tokens.popFront ();
+            auto tried = untilBracketToExpressions ();
+            if (tried._is!UserError) {
+              return MaybeExpression (tried.get!UserError);
+            }
           }
-          auto maybeRuleP
-            = ruleParams (tokens [0.. functionRuleParamEnd], typeScope);
-          if (maybeRuleP._is!UserError) {
-            return MaybeExpression (maybeRuleP.get!UserError);
-          }
-          auto ruleP = maybeRuleP.get!RuleParamsWithArgs;
-          // Colon here, so + 1 to ignore it
-          tokens = tokens [functionRuleParamEnd + 1 .. $];
-          auto untilBracket = tokens
-            .countUntil! (t => t.type == closingBracket);
-          if (untilBracket == -1) {
-            return MaybeExpression (UserError (`No matching '}' for '{'`));
-          }
-          auto funExpr = toExpression (
-            tokens [0 .. untilBracket]
-            , false // TODO: Check
-            , typeScope
-          );
-          if (funExpr._is!UserError) {
-            return MaybeExpression (funExpr.get!UserError);
-          }
-          debug writeln (
-            `TODO: Allow multiple expressions in functions`
-          );
-          auto rtFunToRet = RTFunction (
-            ruleP.inputParams, [funExpr.get!Expression]
-          );
-          toRet ~= ExpressionArg (RTValue (Function, Var (rtFunToRet)));
-          // Note: Closing bracket is popped at loop end.
-          tokens = tokens [untilBracket .. $];
           break;
         default:
           debug writeln (`TODO: toExpression with token `, token.type);
