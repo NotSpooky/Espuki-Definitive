@@ -2,17 +2,15 @@ module app;
 
 import std.stdio;
 import execute;
-import lexer : lex;
 
 void main () {
   import std.algorithm;
   import std.conv : to;
   import mir.algebraic : visit;
-  import intrinsics :globalTypes;
-  lex (File (`example.es`).byLineCopy (), globalTypes).visit! (
-    (UserError ue) => writeln (`Error: `, ue.message)
-    , (expressions) => writeln (expressions)
-  );
+  auto result = executeFromLines (File (`example.es`).byLineCopy ());
+  if (result._is!RTValue) {
+    result.get!RTValue.value.visit! ((a) { writeln (a); });
+  }
 }
 
 /+

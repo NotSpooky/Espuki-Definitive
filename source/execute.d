@@ -135,55 +135,244 @@ struct RTValue {
 /// An error in the code that the compiler/interpreter should show.
 struct UserError {
   string message;
+  this (T ...)(T args) {
+    this.message = text (args);
+  }
 }
 
 alias ValueOrErr = Nullable!RTValue;
-alias ApplyFun = ValueOrErr delegate (
-  RTValue [] apply
-  , RuleScope [] scopes
-  , bool usedUnderscore
-);
+alias RTValueOrErr = Variant! (RTValue, UserError);
 
+alias TypeOrSymbol = Variant! (Type, string);
+// Could simply add the strings as RTValues of symbols instead.
+alias RTValueOrSymbol = Variant! (RTValue, string);
+struct MatchWithPos {
+    Rule rule;
+    size_t position;
+    this (Rule rule, size_t position) {
+      this.rule = rule;
+      this.position = position;
+    }
+  }
+
+RTValueOrErr executeFromExpression (
+  in Expression expression
+  , RTValue [] lastResult
+  , ref RuleTree ruleTree
+) {
+  assert (
+    lastResult.length <= 1
+    , `TODO: Implement multiple return values to tuple conversion`
+  );
+  const useImplicitFirstArg
+    = !expression.usesUnderscore && lastResult.length > 0;
+  auto args = (useImplicitFirstArg ? [
+    RTValueOrSymbol (lastResult [0])
+  ] : []) ~ expression.args.map! (a =>
+    a.visit! (
+      // TODO: Execute subexpression to get a value.
+      (const Expression * subExpr) => RTValueOrSymbol (`TODO`)
+      // TODO: Get identifier values from scope.
+      , (a) => RTValueOrSymbol (a)
+    )
+  ).array;
+
+  auto params = args.map! (a => a.visit! (
+    (RTValue val) => val.type
+    , (string symbol) => symbol
+  )).array;
+  debug writeln (`Args: `, args);
+  debug writeln (`Params: `, params);
+  auto result = ruleTree.matchRule (params).visit! (
+    (typeof (null)) => RTValueOrErr (
+      UserError (`Couldn't match rule for `, args)
+    ), (MatchWithPos mwp) {
+      // TODO: Apply all the matches, not just the first.
+      return RTValueOrErr (mwp.rule.apply (
+        args
+          .filter! (a => a._is!RTValue)
+          .map! (a => a.get!RTValue)
+          .array
+        , ruleTree
+      ));
+    }
+  );
+  return result;
+  /+
+  // TODO:
+  // >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+  // Convert the strings to a symbol or RTValue as needed.
+  // Use the values for rule apply
+  // Merge into a sumtype of RTValue | UserError
+  // <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
+
+
+  // TODO: Get all the rules, not just one.
+  return ruleTree.matchRule (asStringOrValue).visit! (
+    , (MatchWithPos mwp) {
+      mwp.rule.apply ();
+    }
+  );
+  +/
+}
 debug import std.stdio;
 import std.range;
-auto executeFromLines (R)(R lines) if (is (ElementType!R == string)) {
-  import lexer : Expression, asExpressions;
-  return asExpressions (lines).visit! (
+RTValueOrErr executeFromLines (R)(R lines) if (is (ElementType!R == string)) {
+  import lexer : asExpressions;
+  import parser : Expression;
+  import intrinsics : globalTypes, globalRules;
+  auto ruleTree = RuleTree (globalRules.rules);
+  RTValue [] lastResult = [];
+  return asExpressions (lines, globalTypes).visit! (
     (Expression [] expressions) { 
       foreach (expression; expressions) {
-        debug expression.writeln ();
+        auto result = executeFromExpression (expression, lastResult, ruleTree);
+        if (result._is!UserError) {
+          return result;
+        } else {
+          debug writeln (`res: `, result.get!RTValue.value.visit! (a => a.to!string));
+          lastResult = [result.get!RTValue];
+        //debug writeln (ruleTree.matchRule (expression));
+        }
       }
-      return RTValue (I32, Var (777));
+      debug writeln (`TODO: Allow returning multiple values`);
+      return RTValueOrErr (lastResult [0]);
     }
     , (UserError ue) {
       stderr.writeln (`Error: `, ue.message);
-      return ue;
+      return RTValueOrErr (ue);
     }
   );
 }
 
-alias TypeOrSymbol = Variant! (Type, string);
 alias Var = Variant! (float, string, int, RTFunction);
 alias MaybeValue = Nullable!Var;
-alias Pattern = Tuple! (MaybeValue [], `pattern`, ApplyFun, `apply`);
+alias ApplyFun = ValueOrErr delegate (
+  RTValue [] inputs
+  , in RuleTree ruleTree
+);
+/// mir.algebraic.Variant seems to have trouble with ApplyFun so we wrap it.
+struct ApplyFunContainer {
+  ApplyFun applyFun;
+}
+
+/+
+/// Assumes the types match.
+/// TODO: Consider equality in Espuki rather than in D.
+// Would be nicer to have another representation of priority, based on subsets
+// for example, this works well for [null, null] < [1, null] < [1, 1]
+// but this should trigger ambiguity: [1, null, null] and [null, 1, 1]
+Nullable!uint patternScore (RTValue [] values, MaybeValue [] pattern) {
+  assert (
+    values.length == pattern.length
+    , text (`Values `, values, ` has different length than `, pattern)
+  );
+  uint score = 0;
+  foreach (value, pVal; values.lockstep (pattern)) {
+    if (!pVal.isNull ()) {
+      if (pVal.get () != value) {
+        // Doesn't match
+        return Nullable!uint (null);
+      }
+      score ++;
+  }
+  return Nullable!uint (score);
+}+/
+
+struct OrderedValuedParam {
+  uint position;
+  RTValue value;
+}
+struct OrderedValuedParams {
+  OrderedValuedParam [] params;
+  ApplyFun apply;
+}
+struct NoMatch {}
+
+alias MaybeApplyFun = Variant! (ApplyFunContainer, NoMatch, UserError);
+
+struct PatternTree {
+  /// Params that need to be satisfied to match this pattern.
+  OrderedValuedParams common;
+  /// They musn't repeat an ancestor position as they are implicit to be the same.
+  /// They also shouldn't have 0 params, only the root can have no params.
+  PatternTree [] moreSpecificPatterns;
+
+  /// Constructor for just common parameters.
+  this (OrderedValuedParams common) {
+    this.common = common;
+    this.moreSpecificPatterns = [];
+  }
+  /// Constructor for common and specific parameters.
+  this (OrderedValuedParams common, PatternTree [] moreSpecificPatterns) {
+    this.common = common;
+    this.moreSpecificPatterns = moreSpecificPatterns;
+  }
+
+  MaybeApplyFun bestMatchFor (RTValue [] inputs) {
+    if (! common.params.all! (c => inputs [c.position] == c.value)) {
+      return MaybeApplyFun (NoMatch ());
+    }
+    auto bestMatches = moreSpecificPatterns
+      .map! (sp => sp.bestMatchFor (inputs));
+    auto err = bestMatches.save ().find! (sp => sp._is!UserError);
+    if (!err.empty) {
+      return err.front;
+    }
+    auto bestFound = bestMatches.filter! (sp => !sp._is!ApplyFunContainer);
+    if (bestFound.empty) {
+      // No specific branch matched, but this general one did, so return this
+      // one's apply.
+      return MaybeApplyFun (ApplyFunContainer (common.apply));
+    } else {
+      // There's at least one more specific match.
+      // It must be exactly one to avoid ambiguity.
+      auto best = bestFound.front;
+      moreSpecificPatterns.popFront ();
+      if (moreSpecificPatterns.empty) {
+        return MaybeApplyFun (best.get!ApplyFunContainer);
+      } else {
+        return MaybeApplyFun (UserError (`Multiple patterns match `, inputs));
+      }
+    }
+  }
+}
+
+size_t amountThatAreType (R)(R args) {
+  return args.filter ! (arg => arg._is!Type).count ();
+}
 
 struct Rule {
   @disable this ();
   TypeOrSymbol [] args;
-  Pattern [] patterns;
+  PatternTree patternTree;
   /// Version for just matching by type.
   this (TypeOrSymbol [] args, ApplyFun apply) {
-    this (args, [Pattern (MaybeValue (null).repeat (args.length).array, apply)]);
-  }
-  /// Version for several patterns. 
-  this (TypeOrSymbol [] args, Pattern [] patterns) {
     assert (args.length > 0, `Rule with no args`);
-    assert (
-      patterns.all! (a => a.pattern.length == args.length)
-      , `Rule pattern values should be of the same length as the rule args`
-    );
     this.args = args;
-    this.patterns = patterns;
+    this.patternTree = PatternTree (OrderedValuedParams ([], apply));
+  }
+
+  /// Executes the most fitting pattern in patterns and returns its result.
+  /// If no pattern fits, an UserError is returned.
+  /// THIS DOESN'T DO THE MATCHING IN THE TREE.
+  /// Check out the RuleTree.matchRule for that.
+  RTValueOrErr apply (RTValue [] inputs, in RuleTree ruleTree) {
+    auto fitting = this.patternTree.bestMatchFor (inputs);
+    return fitting.visit! (
+      (NoMatch nm) => RTValueOrErr (UserError (`No rule matches `, inputs))
+      , (ApplyFunContainer af) => af.applyFun (inputs, ruleTree).visit!(
+
+        (typeof (null)) => RTValueOrErr (UserError (`Error executing `, this, ` with `, inputs))
+        , (RTValue result) => RTValueOrErr (result)
+
+      )
+      , (UserError ue) => RTValueOrErr (ue)
+    );
+  }
+
+  nothrow @safe size_t toHash () const {
+    assert (0, `TODO: Rule hash`);
   }
 }
 
@@ -207,6 +396,26 @@ import std.algorithm;
 /// An easily searchable tree structure to match Expressions with Rules.
 /// Currently implemented as a radix tree.
 struct RuleTree {
+  
+  @disable this ();
+  /// Must have at least one rule.
+  this (Rule [] rules) {
+    assert (rules.length > 0);
+    this.commonParams = rules.front.args;
+    this.following = BranchesOrRule (rules.front);
+    this.parent = null;
+    foreach (rule; rules [1 .. $]) {
+      this.addRule (rule);
+    }
+  }
+  private this (
+    TypeOrSymbol [] commonParams, BranchesOrRule following, ParentTreeRef parent
+  ) {
+    this.commonParams = commonParams;
+    this.following = following;
+    this.parent = parent;
+  }
+
   TypeOrSymbol [] commonParams;
   /// Key is the first param in the rule that isn't in the others.
   /// Null if no different parameters (eg. a rule might start the same as others
@@ -308,14 +517,22 @@ struct RuleTree {
     }
   }
 
-  enum nullRule = Nullable!Rule (null);
+  alias MatchRet = Nullable!MatchWithPos;
+  private auto withOffset (MatchRet mR, size_t offset) {
+    return mR.visit! (
+      (typeof (null)) => MatchRet (null)
+      , (MatchWithPos mwp) => MatchRet (mwp.rule, mwp.position + offset)
+    );
+  }
+
+  enum nullRule = MatchRet (null);
   // TODO: Return index or equivalent
   /// Checks if the beginning of ruleArgs matches any rule stored in this tree
   /// and returns it.
   /// If there are multiple rules that match, the longest one is given priority.
   /// Note that a match might not be of the entire ruleArgs.
   /// null is returned if no rule matches
-  Nullable!Rule matchRule (TypeOrSymbol [] ruleArgs) {
+  MatchRet matchRule (TypeOrSymbol [] ruleArgs) {
     foreach (i, ruleArg; ruleArgs) {
       if (commonParams.length == i) {
         // We still have more ruleArgs.
@@ -324,19 +541,21 @@ struct RuleTree {
         // just checks the first one.
         return this.following.visit! (
           (Rule r) {
-            return Nullable!Rule (r);
+            return MatchRet (MatchWithPos (r, commonParams.length));
           }
           , (ref Branches branches) {
             auto subT = BranchingParam (ruleArg) in branches;
             if (subT) {
               auto subTResult = (*subT).matchRule (ruleArgs [i + 1 .. $]);
               if (!subTResult.isNull ()) {
-                return subTResult;
+                auto mwp = subTResult.get!MatchWithPos;
+                mwp.position += commonParams.length + 1;
+                return MatchRet (mwp);
               }
             }
             auto nullT = nullBP in branches;
             if (nullT) {
-              return (*nullT).matchRule ([]);
+              return withOffset ((*nullT).matchRule ([]), commonParams.length);
             }
             return nullRule;
           }
@@ -348,11 +567,11 @@ struct RuleTree {
     }
     if (ruleArgs.length == commonParams.length) {
       return this.following.visit! (
-        (Rule r) => Nullable!Rule (r) // Exact match
+        (Rule r) => MatchRet (r, commonParams.length) // Exact match
         , (Branches branches) {
           auto nullT = nullBP in branches;
           if (nullT) { // Also exact match if successful.
-            return (*nullT).matchRule ([]);
+            return withOffset ((*nullT).matchRule ([]), commonParams.length);
           }
           return nullRule;
         }
@@ -452,7 +671,6 @@ unittest {
   auto justErr = delegate (
     RTValue [] apply
     , RuleScope [] scopes
-    , bool usedUnderscore
   ) {
     return ValueOrErr ();
   };

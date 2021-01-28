@@ -45,7 +45,7 @@ import std.algorithm;
 /// Tries to generate a list of expressions from text.
 /// Note: Doesn't return a list of tokens.
 /// Those are handled here direclty or by using parser.toExpression
-LexRet lex (R)(R inputLines, TypeScope typeScope) {
+LexRet asExpressions (R)(R inputLines, TypeScope typeScope) {
   Appender! (Expression []) toRet;
   // Outside the loop as output lines might not have a 1:1 relationship with
   // input lines in cases such as empty/commented lines or '\' at the end of
@@ -269,8 +269,4 @@ LexRet lex (R)(R inputLines, TypeScope typeScope) {
     return LexRet (UserError (`EOF reached but /* comment wasn't closed`));
   }
   return LexRet (toRet []);
-}
-
-auto asExpressions (R) (R lines) {
-  return lex (lines);
 }

@@ -4,8 +4,9 @@ import std.algorithm;
 import std.conv;
 import execute;
 
+Type Kind; // Just a Type of Type.
 Type String;
-Type Identifier;
+Type Symbol;
 Type I32;
 Type F32;
 Type Function;
@@ -13,19 +14,19 @@ Type Function;
 RuleScope * globalRules;
 TypeScope globalTypes;
 
-Rule identity (Type type) {
+Rule identity (Type [] types) {
   return Rule (
-    // Single int returns itself
-    [TypeOrSymbol (type)]
-    , [Pattern ([MaybeValue (null)], (
-        RTValue [] args
-        , RuleScope [] scopes
-        , bool usedUnderscore
-      ) {
-        assert (args.length == 1);
-        return ValueOrErr (args [0]);
-      }
-    )]
+    // Single Type instanceOfType returns itself
+    [TypeOrSymbol (Kind)]
+    , (
+      RTValue [] args
+      , in RuleTree ruleTree
+    ) {
+      debug import std.stdio;
+      debug writeln (`Identity args `, args);
+      assert (args.length == 1);
+      return ValueOrErr (args [0]);
+    }
   );
 }
 
@@ -40,18 +41,16 @@ Rule [] instanceSumType (Type [] types) {
 }
 
 static this () {
+  Kind = globalTypes.add (`Kind`).get!Type;
   String = globalTypes.add (`String`).get!Type;
-  Identifier = globalTypes.add (`Identifier`).get!Type;
+  Symbol = globalTypes.add (`Symbol`).get!Type;
   I32 = globalTypes.add (`I32`).get!Type;
   F32 = globalTypes.add (`F32`).get!Type;
   Function = globalTypes.add (`Function`).get!Type;
 
   globalRules = new RuleScope ([
-    identity (String)
-    , identity (Identifier)
-    , identity (I32)
-    , identity (F32)
-    , identity (Function)
+    identity ([Kind, String, Symbol, I32, F32, Function])
+    , fromD!plus
     /+
     , Rule (
       [TypeOrSymbol (`apply`), TypeOrSymbol (I32), TypeOrSymbol (Function)], (
@@ -78,12 +77,10 @@ static this () {
         }
       }
     )
-    , fromD!plus
     +/
   ]);
 }
 
-/+
 extern (C) {
   int plus (int a, int b) { return a + b; }
 }
@@ -111,10 +108,8 @@ Rule fromD (alias Fun) () {
     params ~= TypeOrSymbol (TypeMapping!Param);
   }
   return Rule (params, (
-    Value [] args
-    , RuleScope [] scopes
-    , IdentifierScope lastIdScope
-    , bool usedUnderscore
+    RTValue [] args
+    , in RuleTree ruleTree
   ) {
       import std.stdio;
       // TODO: Foreach with mixin that sets all the values from args.
@@ -126,7 +121,7 @@ Rule fromD (alias Fun) () {
           , text (`Expected arg `, i, ` of `, FunName, ` to be of type `, expectedType.name)
         );
         +/
-        mixin (q{auto arg} ~ i.to!string ~ q{ = args [i + 1].value.get!Param ();});
+        mixin (q{auto arg} ~ i.to!string ~ q{ = args [i].value.get!Param ();});
       }
       import std.range;
       import std.algorithm;
@@ -139,8 +134,7 @@ Rule fromD (alias Fun) () {
         ~ q{);}
       );
       import std.variant;
-      return ValueOrErr (mixin (q{Value (TypeMapping!RetType, Variant(result))}));
+      return ValueOrErr (RTValue (TypeMapping!RetType, Var (result)));
     }
   );
 }
-+/
