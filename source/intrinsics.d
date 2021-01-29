@@ -3,18 +3,21 @@ module intrinsics;
 import std.algorithm;
 import std.conv;
 import execute;
+debug import std.stdio;
 
-Type Kind; // Just a Type of Type.
-Type String;
-Type Symbol;
-Type I32;
-Type F32;
-Type Function;
+TypeId Kind; // Just a Type of Type.
+TypeId String;
+TypeId Symbol;
+TypeId I32;
+TypeId F32;
+TypeId Function;
+TypeId NamedTypeT;
+TypeId ExpressionT;
 
 RuleScope * globalRules;
 TypeScope globalTypes;
 
-Rule identity (Type [] types) {
+Rule identity (TypeId [] types) {
   return Rule (
     // Single Type instanceOfType returns itself
     [TypeOrSymbol (Kind)]
@@ -30,47 +33,72 @@ Rule identity (Type [] types) {
   );
 }
 
-Type [Type []] sumTypeInstances;
-Rule [] instanceSumType (Type [] types) {
-  auto existing = types in sumTypeInstances;
-  Type sumType = existing
-    ? (*existing) : Type (types.map!`a.name`.joiner (` |`).to!string);
-  debug import std.stdio;
-  debug writeln (`TODO: Implement pattern matching so that I can match the type at the beginning`);
-  return [];
+private TypeId addPrimitive (string name) {
+  return globalTypes.add (name).get!TypeId;
 }
 
-static this () {
-  Kind = globalTypes.add (`Kind`).get!Type;
-  String = globalTypes.add (`String`).get!Type;
-  Symbol = globalTypes.add (`Symbol`).get!Type;
-  I32 = globalTypes.add (`I32`).get!Type;
-  F32 = globalTypes.add (`F32`).get!Type;
-  Function = globalTypes.add (`Function`).get!Type;
+shared static this () {
+  Kind = addPrimitive (`Kind`);
+  String = addPrimitive (`String`);
+  Symbol = addPrimitive (`Symbol`);
+  I32 = addPrimitive (`I32`);
+  F32 = addPrimitive (`F32`);
+  Function = addPrimitive (`Function`);
+  NamedTypeT = addPrimitive (`NamedType`);
+  ExpressionT = addPrimitive (`Expression`);
+  auto Array = ParametrizedKind (
+    `Array`, [Kind]
+  );
+  auto ArrayOfTypes = Array.instance ([RTValue (Kind, Var (Kind))]).get!TypeId;
+  // Array of types should be here too?
+  auto SumType = ParametrizedKind (
+    `SumType`, [ArrayOfTypes]
+  );
+  auto SymbolOrNamedType = SumType.instance (
+    [RTValue (ArrayOfTypes, Var ([Symbol, NamedTypeT]))]
+  ).get!TypeId;
+  auto ArrayOfSymbolOrNamedType = Array.instance (
+    [RTValue (Kind, Var (SymbolOrNamedType))]
+  ).get!TypeId;
+  auto ArrayOfExpressions = Array.instance (
+    [RTValue (Kind, Var (ExpressionT))]
+  ).get!TypeId;
 
   globalRules = new RuleScope ([
     identity ([Kind, String, Symbol, I32, F32, Function])
     , fromD!plus (automaticParams!plus (1))
     , fromD!writeString (automaticParams!writeString (0, `writeln`))
     , Rule (
-      [TypeOrSymbol (I32), TypeOrSymbol (`apply`), TypeOrSymbol (Function)], (
+      [TypeOrSymbol (I32), TypeOrSymbol (`apply`), TypeOrSymbol (Function)]
+      , (
         in RTValue [] args
         , ref RuleTree ruleTree
       ) {
-        import std.stdio;
         assert (args.length == 2);
-        /*debug writeln (
+        /*
+          debug writeln (
           "Apply called, will now execute with:\n\t"
           , args [0].value, ` in `, args [1].value
         );*/
         import parser : Expression;
         auto result = executeFromExpressions (
-          args [1].value.get! (Expression [])
+          * (cast (Expression [] *) args [1].value.get! (void *))
           , [args [0]]
           , ruleTree
         );
         // debug writeln (`Apply result: `, result);
         return result;
+      }
+    )
+    , Rule (
+      [TypeOrSymbol (ArrayOfSymbolOrNamedType), TypeOrSymbol (ArrayOfExpressions)]
+      , (
+        in RTValue [] args
+        , ref RuleTree ruleTree
+      ) {
+        assert (args.length == 2);
+        debug writeln (`TODO: Declare a function. Called with `, args);
+        return RTValueOrErr (UserError (`TODO: Declare a function`));
       }
     )
   ]);

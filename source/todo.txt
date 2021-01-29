@@ -131,12 +131,7 @@ There are 3 possible cases for array-like sequences:
     openingParenthesis comma separated RTValues closingParenthesis
 
 3) Create graphs:
-A graph is just an Expression [] for the textual representation.
-So the lexer/parser must be able to understand
-  openingBracket Expression * closingBracket
-  that can span multiple lines
-  And put its contents in an RTValue of type (rawExpressionsType, expressions)
+  Only thing missing here is multi-line { ... \n ...}
 
 4) Not strictly needed, Symbol token:
-
   'identifier

@@ -10,14 +10,6 @@ import std.array : Appender, array;
 debug import std.stdio;
 import execute;
 
-private union EArg {
-  string identifierOrSymbol;
-  RTValue literalValue;
-  Expression * subExpression;
-}
-
-alias ExpressionArg = TaggedVariant!EArg;
-
 /// Don't construct this directly, use 'parser.toExpression' function.
 struct Expression {
 
@@ -48,7 +40,15 @@ struct Expression {
   }
 }
 
-import execute : Type, TypeOrSymbol, TypeScope, InputParam;
+private union EArg {
+  string identifierOrSymbol;
+  RTValue literalValue;
+  Expression * subExpression;
+}
+
+alias ExpressionArg = TaggedVariant!EArg;
+
+import execute : TypeOrSymbol, TypeScope, InputParam;
 struct RuleParamsWithArgs {
   TypeOrSymbol [] ruleParams;
   InputParam [] inputParams;
@@ -159,8 +159,10 @@ MaybeExpression toExpression (
             debug writeln (
               `TODO: Allow multiple expressions in functions`
             );
+            auto expressionPtr = new Expression [][1];
+            expressionPtr [0] = [funExpr.get!Expression];
             toRet ~= ExpressionArg (RTValue (Function, Var (
-              [funExpr.get!Expression]
+              expressionPtr.ptr
             )));
             // Note: Closing bracket is popped at loop end.
             tokens = tokens [untilBracket .. $];

@@ -2,25 +2,127 @@ import mir.algebraic;
 import std.conv : text, to;
 import std.typecons : Tuple, tuple;
 
-private uint lastTypeId;
-struct Type {
-  //@disable this (); // Cannot disable when assigning to Variant :(
-  uint id;
-  string name; // Just for pretty printing.
-  this (string name) {
-    this.name = name;
-    this.id = lastTypeId;
-    lastTypeId ++;
-  }
-  bool opEquals()(auto ref const Type other) const {
-    return other.id == this.id;
+/// An error in the code that the compiler/interpreter should show.
+struct UserError {
+  string message;
+  this (T ...)(T args) {
+    this.message = text (args);
   }
 }
 
-alias TypeOrErr = Variant! (Type, UserError);
+struct ParametrizedType {
+  const ParametrizedKind * kind;
+  const RTValue [] args;
+  this (ParametrizedKind * kind, const RTValue [] args) {
+    assert (kind !is null);
+    this.kind = kind;
+    this.args = args;
+  }
+  void toString (
+    scope void delegate (const (char)[]) sink
+  ) {
+    sink (kind.baseName);
+    sink (` `);
+    // Kinda defeats the purpose of using sink lol.
+    sink (args.map!`a.value.toString`.joiner (`, `).to!string);
+  }
+}
+
+private union Types {
+  string primitiveName;
+  ParametrizedType parametrizedType;
+}
+
+alias TypeData = TaggedVariant!Types;
+TypeData [] globalTypeData;
+
+/// As of now just handles type equality by id.
+bool isSubTypeOf (TypeId type, TypeId parent) {
+  if (type == parent) {
+    return true;
+  }
+  // TODO: Implicit conversions here.
+  // Such as Type -> SumType including it
+  // Ix to Iy with y > x
+  // etc
+  return false;
+}
+
+alias ApplyFun = RTValueOrErr delegate (
+  in RTValue [] inputs
+  , ref RuleTree ruleTree
+);
+/// mir.algebraic.Variant seems to have trouble with ApplyFun so we wrap it.
+struct ApplyFunContainer {
+  ApplyFun applyFun;
+}
+
+alias TypeId = size_t;
+struct NamedType {
+  string name;
+  TypeId type;
+}
+alias Var = Variant! (
+  float
+  , string
+  , int
+  , NamedType
+  , NamedType []
+  , TypeId []
+  , void * /* is Expression [] * */
+);
+
+/// A value in the interpreter.
+struct RTValue {
+  TypeId type;
+  Var value;
+  this (TypeId type, Var value) {
+    this.type = type;
+    this.value = value;
+  }
+  void toString (
+    scope void delegate (const (char)[]) sink
+  ) {
+    sink (globalTypeData [this.type].visit! (a => a.to!string));
+    sink (` `);
+    sink (value.toString ());
+  }
+}
+
+alias TypeOrErr = Variant! (TypeId, UserError);
+struct ParametrizedKind {
+  TypeId [] argTypes;
+  string baseName;
+  TypeId [RTValue []] instances;
+  @disable this ();
+  this (string baseName, TypeId [] argTypes) {
+    this.baseName = baseName;
+    this.argTypes = argTypes;
+  }
+  auto instance (const RTValue [] args) {
+    if (
+      ! zip (StoppingPolicy.requireSameLength, args.map!`a.type`, argTypes)
+        .all! (a => a [0].isSubTypeOf (a [1]))
+    ) {
+      return TypeOrErr (UserError (
+        `Arguments `, args, ` don't match ` ~ baseName, `'s params: `, argTypes
+      ));
+    } else {
+      auto inInstances = args in instances;
+      if (inInstances) {
+        return TypeOrErr (*inInstances);
+      } else {
+        const toRet = globalTypeData.length;
+        globalTypeData ~= TypeData (ParametrizedType (&this, args));
+        //parametrizedInstances [this, args] = toRet;
+        return TypeOrErr (toRet);
+      }
+    }
+  }
+}
 
 struct TypeScope {
-  Type [string] types;
+  TypeId [string] types;
   TypeOrErr add (string identifier) {
     auto toRet = TypeOrErr (UserError (
       `Type ` ~ identifier ~ ` already exists in the scope`)
@@ -28,9 +130,10 @@ struct TypeScope {
     this.types.require (
       identifier
       , {
-        auto toAdd = Type (identifier);
-        toRet = TypeOrErr (toAdd);
-        return toAdd;
+        const typeId = globalTypeData.length;
+        globalTypeData ~= TypeData (identifier);
+        toRet = TypeOrErr (typeId);
+        return typeId;
       } ()
     );
     return toRet;
@@ -59,34 +162,9 @@ auto apply (RTFunction fun, RTValue [] args) {
   
 }
 
-/// A value in the interpreter.
-struct RTValue {
-  Type type;
-  Var value;
-  this (Type type, Var value) {
-    this.type = type;
-    this.value = value;
-  }
-  void toString (
-    scope void delegate (const (char)[]) sink
-  ) {
-    sink (type.name);
-    sink (` `);
-    sink (value.toString ());
-  }
-}
-
-/// An error in the code that the compiler/interpreter should show.
-struct UserError {
-  string message;
-  this (T ...)(T args) {
-    this.message = text (args);
-  }
-}
-
 alias RTValueOrErr = Variant! (RTValue, UserError);
 
-alias TypeOrSymbol = Variant! (Type, string);
+alias TypeOrSymbol = Variant! (TypeId, string);
 // Could simply add the strings as RTValues of symbols instead.
 alias RTValueOrSymbol = Variant! (RTValue, string);
 struct MatchWithPos {
@@ -172,6 +250,7 @@ RTValueOrErr executeFromExpression (
           throw new Exception (subExprRet.get!UserError.message);
         }
       }
+      , (RTValue val) => RTValueOrSymbol (val)
       // TODO: Get identifier values from scope.
       , (a) => RTValueOrSymbol (a)
     )
@@ -226,16 +305,7 @@ RTValueOrErr executeFromLines (R)(R lines) if (is (ElementType!R == string)) {
   );
 }
 
-alias Var = Variant! (float, string, int, Expression []);
 alias MaybeValue = Nullable!Var;
-alias ApplyFun = RTValueOrErr delegate (
-  in RTValue [] inputs
-  , ref RuleTree ruleTree
-);
-/// mir.algebraic.Variant seems to have trouble with ApplyFun so we wrap it.
-struct ApplyFunContainer {
-  ApplyFun applyFun;
-}
 
 struct OrderedValuedParam {
   uint position;
@@ -334,7 +404,7 @@ alias ScopeRule = RuleTree; // Weak reference
 // Pointer because of structure self-reference.
 // alias Branch = Variant! (RuleTree *, Rule);
 
-alias BranchingParam = Variant! (Type, string, typeof (null));
+alias BranchingParam = Variant! (TypeId, string, typeof (null));
 
 private alias ParentTreeRef = Nullable! (RuleTree *);
 private alias Branches = RuleTree * [BranchingParam];
