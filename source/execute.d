@@ -1,6 +1,7 @@
 import mir.algebraic;
 import std.conv : text, to;
 import std.typecons : Tuple, tuple;
+import parser : Expression, ExpressionArg;
 
 /// An error in the code that the compiler/interpreter should show.
 struct UserError {
@@ -22,9 +23,14 @@ struct ParametrizedType {
     scope void delegate (const (char)[]) sink
   ) {
     sink (kind.baseName);
-    sink (` `);
+    sink (` (`);
     // Kinda defeats the purpose of using sink lol.
-    sink (args.map!`a.value.toString`.joiner (`, `).to!string);
+    sink (
+      args.map! (a => a.value.visit! (b => b.to!string))
+      .joiner (`, `)
+      .to!string
+    );
+    sink (`)`);
   }
 }
 
@@ -48,6 +54,16 @@ bool isSubTypeOf (TypeId type, TypeId parent) {
   return false;
 }
 
+RTValue tryImplicitConversion (ref RTValue val, TypeId objective) {
+  if (val.type.isSubTypeOf (objective)) {
+    return val;
+  } else {
+    throw new Exception (
+      text (val, ` canot be converted to `, globalTypeData [objective])
+    );
+  }
+}
+
 alias ApplyFun = RTValueOrErr delegate (
   in RTValue [] inputs
   , ref RuleTree ruleTree
@@ -69,6 +85,8 @@ alias Var = Variant! (
   , NamedType
   , NamedType []
   , TypeId []
+  , This [] // For arrays.
+  , typeof (null)
   , void * /* is Expression [] * */
 );
 
@@ -89,7 +107,18 @@ struct RTValue {
       , (ParametrizedType pt) => pt.to!string ())
     );
     sink (` `);
-    sink (value.visit! (a => a.to!string ()));
+    if (value._is!(Var [])) {
+      sink (`[`);
+      sink (
+        value.get! (Var [])
+          .map! (v => v.visit! (a => a.to!string ()))
+          .joiner (`, `)
+          .to!string
+      );
+      sink (`]`);
+    } else {
+      sink (value.visit! (a => a.to!string ()));
+    }
   }
 }
 
@@ -143,7 +172,6 @@ struct TypeScope {
   }
 }
 
-import parser : Expression;
 import std.typecons : Tuple;
 alias InputParam = Tuple! (string, `name`, uint, `index`);
 struct RTFunction {
@@ -224,6 +252,39 @@ RTValueOrErr lastMatchResult (
   );
 }
 
+RTValue createArray (const ExpressionArg [][] args, ref RuleTree ruleTree) {
+  auto subValues = args.map! (
+    (eA) {
+      auto arrElement = executeFromExpression (
+        Expression (eA, Nullable!string (null))
+        // Only makes sense to send when it knows to not use as
+        // implicit first arg.
+        , []
+        , ruleTree
+      );
+      if (arrElement._is!UserError) {
+        throw new Exception (
+          `Error getting array element: ` ~ arrElement.get!UserError.message
+        );
+      } else {
+        return arrElement.get!RTValue;
+      }
+    }
+  );
+
+  if (subValues.empty) {
+    return RTValue (EmptyArray, Var (null));
+  }
+  const elType = subValues.front.type;
+  auto retType = Array.instance ([RTValue (Kind, Var (elType))]);
+  assert (retType._is!TypeId, retType.get!UserError.message);
+  Var [] afterConversionArray = [subValues.front.value];
+  subValues.popFront ();
+  foreach (arrElement; subValues) {
+    afterConversionArray ~= arrElement.tryImplicitConversion (elType).value;
+  }
+  return RTValue (retType.get!TypeId, Var (afterConversionArray));
+}
 /// Finds appropriate rules to match the expression and returns the result
 /// of applying those rules to the match.
 /// If the best match doesn't comprise the full expression, it's result is given
@@ -256,9 +317,16 @@ RTValueOrErr executeFromExpression (
       }
       , (RTValue val) => RTValueOrSymbol (val)
       // TODO: Get identifier values from scope.
-      , (a) => RTValueOrSymbol (a)
+      , (string a) => RTValueOrSymbol (a)
+      , (const arrayElementExpressions) => RTValueOrSymbol (createArray (
+        arrayElementExpressions
+        , ruleTree
+      ))
     )
   ).array;
+  if (args.length == 1 && args [0]._is!RTValue) {
+    return RTValueOrErr (args [0].get!RTValue);
+  }
   debug writeln (`Got as last result `, lastResult.map! (a => a.to!string));
   debug writeln (`Got as args `, args.map! (a => a.visit! (b => b.to!string)));
   auto params = args.map! (a => a.visit! (
@@ -296,7 +364,6 @@ debug import std.stdio;
 import std.range;
 RTValueOrErr executeFromLines (R)(R lines) if (is (ElementType!R == string)) {
   import lexer : asExpressions;
-  import parser : Expression;
   import intrinsics : globalTypes, globalRules;
   auto ruleTree = RuleTree (globalRules.rules);
   return asExpressions (lines, globalTypes).visit! (

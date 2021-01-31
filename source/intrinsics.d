@@ -14,6 +14,7 @@ TypeId NamedTypeT;
 TypeId ExpressionT;
 ParametrizedKind Array;
 ParametrizedKind SumType;
+TypeId EmptyArray; // Not an instance of array, has special rules.
 TypeId ArrayOfTypes;
 // Note: To prevent forward refs, this uses void * (which is an Expression [] *)
 TypeId ArrayOfExpressions;
@@ -21,6 +22,7 @@ TypeId ArrayOfExpressions;
 RuleScope * globalRules;
 TypeScope globalTypes;
 
+/+
 Rule identity (TypeId [] types) {
   return Rule (
     // Single Type instanceOfType returns itself
@@ -36,6 +38,7 @@ Rule identity (TypeId [] types) {
     }
   );
 }
++/
 
 private TypeId addPrimitive (string name) {
   return globalTypes.add (name).get!TypeId;
@@ -49,6 +52,7 @@ shared static this () {
   F32 = addPrimitive (`F32`);
   NamedTypeT = addPrimitive (`NamedType`);
   ExpressionT = addPrimitive (`Expression`);
+  EmptyArray = addPrimitive (`EmptyArray`);
   Array = ParametrizedKind (
     `Array`, [Kind]
   );
@@ -68,8 +72,7 @@ shared static this () {
   ).get!TypeId;
 
   globalRules = new RuleScope ([
-    identity ([Kind, String, Symbol, I32, F32, ExpressionT, NamedTypeT])
-    , fromD!plus (automaticParams!plus (1))
+    fromD!plus (automaticParams!plus (1))
     , fromD!writeString (automaticParams!writeString (0, `writeln`))
     , Rule (
       [

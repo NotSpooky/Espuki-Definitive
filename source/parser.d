@@ -13,6 +13,7 @@ import execute;
 private union EArg {
   string identifierOrSymbol;
   RTValue literalValue;
+  This [][] arrayArgs;
 }
 
 alias ExpressionArg = TaggedVariant!EArg;
@@ -20,7 +21,7 @@ alias ExpressionArg = TaggedVariant!EArg;
 /// Don't construct this directly, use 'parser.toExpression' function.
 struct Expression {
 
-  ExpressionArg [] args;
+  const ExpressionArg [] args;
   /// An expression gets a name when assigned to a variable.
   /// Note that the implicit underscore isn't handled with this variable.
   Nullable!string name;
@@ -188,9 +189,7 @@ MaybeExpressionArgs toExpressionArgs (
             }
             // ']' is popped automatically.
           }
-          debug writeln (`Parsed array of `, arrayContents);
-          debug writeln (`TODO: Convert it to RTValue`);
-          toRet ~= ExpressionArg (RTValue (ArrayOfTypes, Var (TypeId [].init)));
+          toRet ~= ExpressionArg (arrayContents);
           break;
         default:
           return MaybeExpressionArgs (toRet []);
