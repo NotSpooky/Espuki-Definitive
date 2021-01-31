@@ -80,12 +80,16 @@ struct RTValue {
     this.type = type;
     this.value = value;
   }
+
   void toString (
     scope void delegate (const (char)[]) sink
-  ) {
-    sink (globalTypeData [this.type].visit! (a => a.to!string));
+  ) const {
+    sink (globalTypeData [this.type].visit! (
+      (string name) => name
+      , (ParametrizedType pt) => pt.to!string ())
+    );
     sink (` `);
-    sink (value.toString ());
+    sink (value.visit! (a => a.to!string ()));
   }
 }
 
@@ -94,7 +98,6 @@ struct ParametrizedKind {
   TypeId [] argTypes;
   string baseName;
   TypeId [RTValue []] instances;
-  @disable this ();
   this (string baseName, TypeId [] argTypes) {
     this.baseName = baseName;
     this.argTypes = argTypes;
@@ -235,6 +238,7 @@ RTValueOrErr executeFromExpression (
     lastResult.length <= 1
     , `TODO: Implement multiple return values to tuple conversion`
   );
+  assert (expression.args.length > 0, `Lexer shouldn't send empty expressions`);
   const useImplicitFirstArg
     = !expression.usesUnderscore && lastResult.length > 0;
   auto args = (useImplicitFirstArg ? [
@@ -255,7 +259,8 @@ RTValueOrErr executeFromExpression (
       , (a) => RTValueOrSymbol (a)
     )
   ).array;
-
+  debug writeln (`Got as last result `, lastResult.map! (a => a.to!string));
+  debug writeln (`Got as args `, args.map! (a => a.visit! (b => b.to!string)));
   auto params = args.map! (a => a.visit! (
     (RTValue val) => val.type
     , (string symbol) => symbol

@@ -25,6 +25,7 @@ struct Token {
     , semicolon             // Outside of this module, this shouldn't appear
     , backslash             // Ditto
     , rightArrow
+    , verticalLine          // Used for sumtypes
   }
   Type type;
 }
@@ -35,7 +36,7 @@ import mir.algebraic;
 import std.algorithm;
 import execute : RTValue, UserError, TypeScope;
 
-import parser : Expression, toExpression;
+import parser : Expression, ExpressionArg, toExpressionArgs;
 alias LexRet = Variant! (Expression [], UserError);
 
 import std.algorithm;
@@ -44,7 +45,7 @@ import std.algorithm;
 
 /// Tries to generate a list of expressions from text.
 /// Note: Doesn't return a list of tokens.
-/// Those are handled here direclty or by using parser.toExpression
+/// Those are handled here direclty or by using parser.toExpressionArgs
 LexRet asExpressions (R)(R inputLines, TypeScope typeScope) {
   Appender! (Expression []) toRet;
   // Outside the loop as output lines might not have a 1:1 relationship with
@@ -138,22 +139,27 @@ LexRet asExpressions (R)(R inputLines, TypeScope typeScope) {
           case ':':
             type = colon;
             break;
+          case '|':
+            type = verticalLine;
+            break;
           case ';':
             auto currentLineData = currentLineTokens [];
             if (currentLineData.length == 0) {
               return LexRet (UserError (`; found with empty left side`));
             } else {
               line.popFront ();
-              auto expr = toExpression (
+              auto exprArgs = toExpressionArgs (
                 currentLineData
-                , false
                 , typeScope
               );
-              if (expr._is! (Expression)) {
-                toRet ~= expr.get!Expression;
+              if (exprArgs._is! (ExpressionArg [])) {
+                toRet ~= Expression (
+                  exprArgs.get! (ExpressionArg [])
+                  , Nullable!string (null)
+                );
               } else {
-                assert (expr._is!UserError);
-                return LexRet (expr.get!UserError);
+                assert (exprArgs._is!UserError);
+                return LexRet (exprArgs.get!UserError);
               }
               currentLineTokens = TokenAppender ();
               goto continueLine;
@@ -252,15 +258,22 @@ LexRet asExpressions (R)(R inputLines, TypeScope typeScope) {
       currentLineTokens = appender (currentLineData [0..$-1]);
       continue;
     }
-    auto expr = toExpression (
+    // Finished lexing a line, convert it to an expression.
+    auto exprArgs = toExpressionArgs (
       currentLineData
-      , true
       , typeScope
     );
-    if (expr._is!Expression) {
-      toRet ~= expr.get!Expression;
+    if (exprArgs._is! (ExpressionArg [])) {
+      auto exprArgsG = exprArgs.get! (ExpressionArg []);
+      if (exprArgsG.length > 0) {
+        // Don't add empty expressions.
+        toRet ~= Expression (
+          exprArgsG
+          , Nullable!string (`_`)
+        );
+      }
     } else {
-      return LexRet (expr.get!UserError);
+      return LexRet (exprArgs.get!UserError);
     }
     currentLineTokens = TokenAppender ();
   }

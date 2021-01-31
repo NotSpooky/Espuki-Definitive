@@ -10,13 +10,17 @@ import std.array : Appender, array;
 debug import std.stdio;
 import execute;
 
+private union EArg {
+  string identifierOrSymbol;
+  RTValue literalValue;
+}
+
+alias ExpressionArg = TaggedVariant!EArg;
+
 /// Don't construct this directly, use 'parser.toExpression' function.
 struct Expression {
 
   ExpressionArg [] args;
-  /// An expression with return value that isn't finished with the semicolon token.
-  /// is true, false otherwise.
-  bool producesUnderscore;
   /// An expression gets a name when assigned to a variable.
   /// Note that the implicit underscore isn't handled with this variable.
   Nullable!string name;
@@ -29,7 +33,7 @@ struct Expression {
     return toHash (0);
   }
   nothrow @safe size_t toHash (size_t preHash) const {
-    preHash = producesUnderscore.hashOf (name.hashOf (producesUnderscore.hashOf ()));
+    preHash = name.hashOf (usesUnderscore.hashOf (preHash));
     foreach (arg; args) {
       arg.visit! (
         (Expression * subExpression) { preHash = (* subExpression).toHash (preHash); }
@@ -39,14 +43,6 @@ struct Expression {
     return preHash;
   }
 }
-
-private union EArg {
-  string identifierOrSymbol;
-  RTValue literalValue;
-  Expression * subExpression;
-}
-
-alias ExpressionArg = TaggedVariant!EArg;
 
 import execute : TypeOrSymbol, TypeScope, InputParam;
 struct RuleParamsWithArgs {
@@ -72,6 +68,7 @@ MaybeParams ruleParams (Token [] tokens, TypeScope typeScope) {
   
   with (Token.Type) {
     for (
+      // Actually need the i.
       uint i = 0
       ; i < tokens.length
       ; i ++
@@ -105,14 +102,14 @@ MaybeParams ruleParams (Token [] tokens, TypeScope typeScope) {
 
 struct Success {}
 alias SuccessOrError = Variant! (Success, UserError);
-alias MaybeExpression = Variant! (Expression, UserError);
+alias MaybeExpressionArgs = Variant! (ExpressionArg [], UserError);
 /// Used to convert tokens to a list of:
 /// strings in case of symbols or identifiers
 /// values in case of literals,
 /// ExpressionArgs in case of subexpressions (pointer used to allow self-references).
-MaybeExpression toExpression (
-  Token [] tokens
-  , bool producesUnderscore
+/// Note: Receives tokens by ref and advances it until the expression is parsed.
+MaybeExpressionArgs toExpressionArgs (
+  ref Token [] tokens
   , TypeScope typeScope
 ) {
   assert (!tokens.empty);
@@ -139,62 +136,67 @@ MaybeExpression toExpression (
           // Note: This will also be used for storing graphs, in case there's no
           // colon.
           tokens.popFront ();
+          // TODO: Parse subexpressions instead of searching for first occurrence.
           auto functionRuleParamEnd = tokens
             .countUntil! (t => t.type == colon);
-
-          SuccessOrError untilBracketToExpressions () {
-            auto untilBracket = tokens
-              .countUntil! (t => t.type == closingBracket);
-            if (untilBracket == -1) {
-              return SuccessOrError (UserError (`No matching '}' for '{'`));
-            }
-            auto funExpr = toExpression (
-              tokens [0 .. untilBracket]
-              , false // TODO: Check
-              , typeScope
-            );
-            if (funExpr._is!UserError) {
-              return SuccessOrError (funExpr.get!UserError);
-            }
-            debug writeln (
-              `TODO: Allow multiple expressions in functions`
-            );
-            auto expressionPtr = new Expression [][1];
-            expressionPtr [0] = [funExpr.get!Expression];
-            toRet ~= ExpressionArg (RTValue (Function, Var (
-              expressionPtr.ptr
-            )));
-            // Note: Closing bracket is popped at loop end.
-            tokens = tokens [untilBracket .. $];
-            return SuccessOrError (Success ());
-          }
           if (functionRuleParamEnd == -1) {
             // No function rule params.
-            auto tried = untilBracketToExpressions ();
-            if (tried._is!UserError) {
-              return MaybeExpression (tried.get!UserError);
+            auto subArgs = toExpressionArgs (tokens, typeScope);
+            if (subArgs._is!UserError) {
+              return subArgs;
             }
+            auto subExprArgs = subArgs.get! (ExpressionArg []);
+            if (tokens.empty || tokens.front.type != closingBracket) {
+              return MaybeExpressionArgs (UserError (`No matching '}' for '{'`));
+            }
+            // Expression [] needs to be stored as void * to avoid forward
+            // reference errors.
+            auto ptr = new Expression [][1];
+            ptr [0] = [Expression (subExprArgs, Nullable!string (null))];
+            toRet ~= ExpressionArg (
+              RTValue (ArrayOfExpressions, Var (cast (void *) ptr.ptr))
+            );
+            // '}' popped automatically.
           } else {
             // There are function rule params.
-            auto maybeRuleP
-              = ruleParams (tokens [0.. functionRuleParamEnd], typeScope);
-            if (maybeRuleP._is!UserError) {
-              return MaybeExpression (maybeRuleP.get!UserError);
-            }
-            auto ruleP = maybeRuleP.get!RuleParamsWithArgs;
-            // Colon here, so pop it.
-            tokens.popFront ();
-            auto tried = untilBracketToExpressions ();
-            if (tried._is!UserError) {
-              return MaybeExpression (tried.get!UserError);
-            }
           }
           break;
+        case openingSquareBracket:
+          // Array syntax.
+          // TODO: Allow nesting.
+          tokens.popFront ();
+          auto noClosingBracketErr = MaybeExpressionArgs (UserError (
+            `No matching ']' for '['`
+          ));
+          if (tokens.empty) return noClosingBracketErr;
+          ExpressionArg [][] arrayContents;
+          if (tokens.front.type != closingBracket) {
+            parseArrayElement:
+              auto subArgs = toExpressionArgs (tokens, typeScope);
+              if (subArgs._is!UserError) {
+                return subArgs;
+              }
+              auto subExprArgs = subArgs.get! (ExpressionArg []);
+              if (tokens.empty) return noClosingBracketErr;
+              arrayContents ~= subExprArgs;
+              if (tokens.front.type == comma) {
+                tokens.popFront ();
+                goto parseArrayElement;
+              }
+            if (tokens.front.type != closingSquareBracket) {
+              return noClosingBracketErr;
+            }
+            // ']' is popped automatically.
+          }
+          debug writeln (`Parsed array of `, arrayContents);
+          debug writeln (`TODO: Convert it to RTValue`);
+          toRet ~= ExpressionArg (RTValue (ArrayOfTypes, Var (TypeId [].init)));
+          break;
         default:
-          debug writeln (`TODO: toExpression with token `, token.type);
+          return MaybeExpressionArgs (toRet []);
       }
     }
   }
   //debug writeln (`Parsed expression args: `, toRet []);
-  return MaybeExpression (Expression (toRet [], producesUnderscore));
+  return MaybeExpressionArgs (toRet []);
 }

@@ -10,9 +10,13 @@ TypeId String;
 TypeId Symbol;
 TypeId I32;
 TypeId F32;
-TypeId Function;
 TypeId NamedTypeT;
 TypeId ExpressionT;
+ParametrizedKind Array;
+ParametrizedKind SumType;
+TypeId ArrayOfTypes;
+// Note: To prevent forward refs, this uses void * (which is an Expression [] *)
+TypeId ArrayOfExpressions;
 
 RuleScope * globalRules;
 TypeScope globalTypes;
@@ -43,15 +47,14 @@ shared static this () {
   Symbol = addPrimitive (`Symbol`);
   I32 = addPrimitive (`I32`);
   F32 = addPrimitive (`F32`);
-  Function = addPrimitive (`Function`);
   NamedTypeT = addPrimitive (`NamedType`);
   ExpressionT = addPrimitive (`Expression`);
-  auto Array = ParametrizedKind (
+  Array = ParametrizedKind (
     `Array`, [Kind]
   );
-  auto ArrayOfTypes = Array.instance ([RTValue (Kind, Var (Kind))]).get!TypeId;
+  ArrayOfTypes = Array.instance ([RTValue (Kind, Var (Kind))]).get!TypeId;
   // Array of types should be here too?
-  auto SumType = ParametrizedKind (
+  SumType = ParametrizedKind (
     `SumType`, [ArrayOfTypes]
   );
   auto SymbolOrNamedType = SumType.instance (
@@ -60,33 +63,35 @@ shared static this () {
   auto ArrayOfSymbolOrNamedType = Array.instance (
     [RTValue (Kind, Var (SymbolOrNamedType))]
   ).get!TypeId;
-  auto ArrayOfExpressions = Array.instance (
+  ArrayOfExpressions = Array.instance (
     [RTValue (Kind, Var (ExpressionT))]
   ).get!TypeId;
 
   globalRules = new RuleScope ([
-    identity ([Kind, String, Symbol, I32, F32, Function])
+    identity ([Kind, String, Symbol, I32, F32, ExpressionT, NamedTypeT])
     , fromD!plus (automaticParams!plus (1))
     , fromD!writeString (automaticParams!writeString (0, `writeln`))
     , Rule (
-      [TypeOrSymbol (I32), TypeOrSymbol (`apply`), TypeOrSymbol (Function)]
+      [
+        TypeOrSymbol (I32)
+        , TypeOrSymbol (`apply`)
+        , TypeOrSymbol (ArrayOfExpressions)]
       , (
         in RTValue [] args
         , ref RuleTree ruleTree
       ) {
         assert (args.length == 2);
-        /*
-          debug writeln (
+        /+debug writeln (
           "Apply called, will now execute with:\n\t"
           , args [0].value, ` in `, args [1].value
-        );*/
+        );+/
         import parser : Expression;
         auto result = executeFromExpressions (
-          * (cast (Expression [] *) args [1].value.get! (void *))
+          * ((cast (Expression [] *) args [1].value.get! (void *)))
           , [args [0]]
           , ruleTree
         );
-        // debug writeln (`Apply result: `, result);
+        //debug writeln (`Apply result: `, result);
         return result;
       }
     )
