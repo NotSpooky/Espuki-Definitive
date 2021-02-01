@@ -92,6 +92,7 @@ alias Var = Variant! (
   float
   , string
   , int
+  , TypeId
   , NamedType
   , NamedType []
   , TypeId []
@@ -163,19 +164,19 @@ struct ParametrizedKind {
   }
 }
 
-struct TypeScope {
-  TypeId [string] types;
-  TypeOrErr add (string identifier) {
+struct ValueScope {
+  RTValue [string] values;
+  TypeOrErr addType (string identifier) {
     auto toRet = TypeOrErr (UserError (
       `Type ` ~ identifier ~ ` already exists in the scope`)
     );
-    this.types.require (
+    this.values.require (
       identifier
       , {
         const typeId = globalTypeData.length;
         globalTypeData ~= TypeData (identifier);
         toRet = TypeOrErr (typeId);
-        return typeId;
+        return RTValue (Kind, Var(typeId));
       } ()
     );
     return toRet;
@@ -262,33 +263,31 @@ RTValueOrErr lastMatchResult (
   );
 }
 
-auto subValues (const ExpressionArg [][] args, ref RuleTree ruleTree) {
-  return args.map! (
-    (eA) {
-      auto arrElement = executeFromExpression (
-        Expression (eA, Nullable!string (null))
-        // Only makes sense to send when it knows to not use as
-        // implicit first arg.
-        , []
-        , ruleTree
-      );
-      if (arrElement._is!UserError) {
-        throw new Exception (
-          `Error getting array element: ` ~ arrElement.get!UserError.message
-        );
-      } else {
-        return arrElement.get!RTValue;
-      }
-    }
+RTValue subValue (const ExpressionArg [] args, ref RuleTree ruleTree) {
+  auto result = executeFromExpression (
+    Expression (args, Nullable!string (null))
+    , [] // Last result isn't sent to subexpressions.
+    , ruleTree
   );
+  if (result._is!UserError) {
+    throw new Exception (
+      `Error getting subExpression result: `
+        ~ result.get!UserError.message
+    );
+  } else {
+    return result.get!RTValue;
+  }
+}
+
+auto subValues (const ExpressionArg [][] args, ref RuleTree ruleTree) {
+  return args.map! (eA => subValue (eA, ruleTree));
 }
 
 RTValue createArray (const ExpressionArg [][] args, ref RuleTree ruleTree) {
-  auto subVs = subValues (args, ruleTree);
-
-  if (subVs.empty) {
+  if (args.empty) {
     return RTValue (EmptyArray, Var (null));
   }
+  auto subVs = subValues (args, ruleTree);
   const elType = subVs.front.type;
   auto retType = Array.instance ([RTValue (Kind, Var (elType))]);
   assert (retType._is!TypeId, retType.get!UserError.message);
@@ -346,20 +345,15 @@ RTValueOrErr executeFromExpression (
       , (RTValue val) => RTValueOrSymbol (val)
       // TODO: Get identifier values from scope.
       , (string a) => RTValueOrSymbol (a)
-      , (const ArrayArgs!ExpressionArg arrayElementExpressions) =>
-        RTValueOrSymbol (createArray (
+      , (const ArrayArgs!ExpressionArg arrayElementExpressions)
+        => RTValueOrSymbol (createArray (
           arrayElementExpressions.args
           , ruleTree
         ))
-      /+, (const ExpressionArg [][] * sumTypeArgs) =>
-        RTValueOrSymbol (createSumType (
-          * sumTypeArgs
-          , ruleTree
-        ))+/
-      , (const SumTypeArgs!ExpressionArg sumTypeArgs) {
-          debug writeln (`Got as sumtype args `, sumTypeArgs);
-          return RTValueOrSymbol (RTValue (I32, Var (777)));
-      }
+      , (const ExpressionArg [] subExpression)
+        => RTValueOrSymbol (subValue (subExpression, ruleTree))
+      , (const SumTypeArgs!ExpressionArg sumTypeArgs) 
+        => RTValueOrSymbol (createSumType (sumTypeArgs.args, ruleTree))
     )
   ).array;
   if (args.length == 1 && args [0]._is!RTValue) {

@@ -34,7 +34,7 @@ debug import std.stdio;
 
 import mir.algebraic;
 import std.algorithm;
-import execute : RTValue, UserError, TypeScope;
+import execute : RTValue, UserError, ValueScope;
 
 import parser : Expression, ExpressionArg, toExpressionArgs;
 alias LexRet = Variant! (Expression [], UserError);
@@ -46,7 +46,7 @@ import std.algorithm;
 /// Tries to generate a list of expressions from text.
 /// Note: Doesn't return a list of tokens.
 /// Those are handled here direclty or by using parser.toExpressionArgs
-LexRet asExpressions (R)(R inputLines, TypeScope typeScope) {
+LexRet asExpressions (R)(R inputLines, in ValueScope scope_) {
   Appender! (Expression []) toRet;
   // Outside the loop as output lines might not have a 1:1 relationship with
   // input lines in cases such as empty/commented lines or '\' at the end of
@@ -150,7 +150,7 @@ LexRet asExpressions (R)(R inputLines, TypeScope typeScope) {
               line.popFront ();
               auto exprArgs = toExpressionArgs (
                 currentLineData
-                , typeScope
+                , scope_
               );
               if (exprArgs._is! (ExpressionArg [])) {
                 toRet ~= Expression (
@@ -262,7 +262,7 @@ LexRet asExpressions (R)(R inputLines, TypeScope typeScope) {
     // Finished lexing a line, convert it to an expression.
     auto exprArgs = toExpressionArgs (
       currentLineData
-      , typeScope
+      , scope_
     );
     if (exprArgs._is! (ExpressionArg [])) {
       auto exprArgsG = exprArgs.get! (ExpressionArg []);

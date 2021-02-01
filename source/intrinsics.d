@@ -20,7 +20,7 @@ TypeId ArrayOfTypes;
 TypeId ArrayOfExpressions;
 
 RuleScope * globalRules;
-TypeScope globalTypes;
+ValueScope globalTypes;
 
 /+
 Rule identity (TypeId [] types) {
@@ -41,7 +41,7 @@ Rule identity (TypeId [] types) {
 +/
 
 private TypeId addPrimitive (string name) {
-  return globalTypes.add (name).get!TypeId;
+  return globalTypes.addType (name).get!TypeId;
 }
 
 shared static this () {

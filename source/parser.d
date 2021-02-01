@@ -17,9 +17,9 @@ struct ArrayArgs (T) {
   T [][] args;
 }
 private union EArg {
-
   string identifierOrSymbol;
   RTValue literalValue;
+  This [] subExpression;
   ArrayArgs!This arrayArgs;
   SumTypeArgs!This sumTypeArgs;
 }
@@ -53,7 +53,7 @@ struct Expression {
   }
 }
 
-import execute : TypeOrSymbol, TypeScope, InputParam;
+import execute : TypeOrSymbol, ValueScope, InputParam;
 struct RuleParamsWithArgs {
   TypeOrSymbol [] ruleParams;
   InputParam [] inputParams;
@@ -71,7 +71,7 @@ function is stored on an RTValue, same as literals
 
 /// Parses a list of tokens with format
 /// identifier * ((Type | Symbol identifier+) * identifier) ?
-MaybeParams ruleParams (Token [] tokens, TypeScope typeScope) {
+MaybeParams ruleParams (Token [] tokens, ValueScope scope_) {
   Appender! (TypeOrSymbol []) rulePsToRet;
   Appender! (InputParam []) paramsToRet;
   
@@ -92,13 +92,15 @@ MaybeParams ruleParams (Token [] tokens, TypeScope typeScope) {
             text (`Expected identifiers after `, current.strVal)
           ));
         }
-        auto type = current.strVal in typeScope.types;
+        auto type = current.strVal in scope_.values;
         if (!type) {
           return MaybeParams (UserError (
             text (`Couldn't find type `, current.strVal)
           ));
         }
-        rulePsToRet ~= TypeOrSymbol (*type);
+        assert (type.type == Kind, `Types should be of type Kind`);
+        auto typeVal = (* type).value.get!TypeId;
+        rulePsToRet ~= TypeOrSymbol (typeVal);
         i ++;
         auto nextT = tokens [i];
         assert (nextT.type == identifier, `TODO: Type constructors`);
@@ -119,7 +121,7 @@ alias MaybeExpressionArgs = Variant! (ExpressionArg [], UserError);
 /// Note: Receives tokens by ref and advances it until the expression is parsed.
 MaybeExpressionArgs toExpressionArgs (
   ref Token [] tokens
-  , TypeScope typeScope
+  , in ValueScope scope_
 ) {
   //debug writeln (`Parsing: `, tokens);
   assert (!tokens.empty);
@@ -151,7 +153,7 @@ MaybeExpressionArgs toExpressionArgs (
             .countUntil! (t => t.type == colon);
           if (functionRuleParamEnd == -1) {
             // No function rule params.
-            auto subArgs = toExpressionArgs (tokens, typeScope);
+            auto subArgs = toExpressionArgs (tokens, scope_);
             if (subArgs._is!UserError) {
               return subArgs;
             }
@@ -182,7 +184,7 @@ MaybeExpressionArgs toExpressionArgs (
           ExpressionArg [][] arrayContents;
           if (tokens.front.type != closingBracket) {
             parseArrayElement:
-              auto subArgs = toExpressionArgs (tokens, typeScope);
+              auto subArgs = toExpressionArgs (tokens, scope_);
               if (subArgs._is!UserError) {
                 return subArgs;
               }
@@ -202,7 +204,7 @@ MaybeExpressionArgs toExpressionArgs (
           break;
         case verticalLine:
           tokens.popFront ();
-          auto otherTypes = toExpressionArgs (tokens, typeScope);
+          auto otherTypes = toExpressionArgs (tokens, scope_);
           if (otherTypes._is!UserError) {
             return otherTypes;
           }
