@@ -282,11 +282,9 @@ RTValue createArray (const ExpressionArg [][] args, ref RuleTree ruleTree) {
   const elType = subVs.front.type;
   auto retType = Array.instance ([RTValue (Kind, Var (elType))]);
   assert (retType._is!TypeId, retType.get!UserError.message);
-  Var [] afterConversionArray = [subVs.front.value];
-  subVs.popFront ();
-  foreach (arrElement; subVs) {
-    afterConversionArray ~= arrElement.tryImplicitConversion (elType).value;
-  }
+  Var [] afterConversionArray = subVs
+    .map! (s => s.tryImplicitConversion (elType).value)
+    .array;
   return RTValue (retType.get!TypeId, Var (afterConversionArray));
 }
 
