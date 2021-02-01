@@ -10,11 +10,18 @@ import std.array : Appender, array;
 debug import std.stdio;
 import execute;
 
+struct SumTypeArgs (T) {
+  T [][] args;
+}
+struct ArrayArgs (T) {
+  T [][] args;
+}
 private union EArg {
+
   string identifierOrSymbol;
   RTValue literalValue;
-  This [][] arrayArgs;
-  This [][] * sumTypeArgs; // There should be a better way of doing this.
+  ArrayArgs!This arrayArgs;
+  SumTypeArgs!This sumTypeArgs;
 }
 
 alias ExpressionArg = TaggedVariant!EArg;
@@ -114,6 +121,7 @@ MaybeExpressionArgs toExpressionArgs (
   ref Token [] tokens
   , TypeScope typeScope
 ) {
+  //debug writeln (`Parsing: `, tokens);
   assert (!tokens.empty);
   Appender! (ExpressionArg []) toRet;
   for (; !tokens.empty; tokens.popFront ()) {
@@ -190,10 +198,26 @@ MaybeExpressionArgs toExpressionArgs (
             }
             // ']' is popped automatically.
           }
-          toRet ~= ExpressionArg (arrayContents);
+          toRet ~= ExpressionArg (ArrayArgs!ExpressionArg (arrayContents));
           break;
         case verticalLine:
-          
+          tokens.popFront ();
+          auto otherTypes = toExpressionArgs (tokens, typeScope);
+          if (otherTypes._is!UserError) {
+            return otherTypes;
+          }
+          auto otherTypesAsEA = otherTypes.get! (ExpressionArg []);
+          auto sT = SumTypeArgs!ExpressionArg ([toRet []]);
+          auto eA = ExpressionArg (sT);
+          return MaybeExpressionArgs (
+            [eA]
+          );
+          /+
+          //toRet = typeof (toRet).init;
+
+
+          break;
+          +/
         default:
           return MaybeExpressionArgs (toRet []);
       }

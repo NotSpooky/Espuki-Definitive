@@ -1,7 +1,7 @@
 import mir.algebraic;
 import std.conv : text, to;
 import std.typecons : Tuple, tuple;
-import parser : Expression, ExpressionArg;
+import parser : Expression, ExpressionArg, SumTypeArgs, ArrayArgs;
 
 /// An error in the code that the compiler/interpreter should show.
 struct UserError {
@@ -336,16 +336,20 @@ RTValueOrErr executeFromExpression (
       , (RTValue val) => RTValueOrSymbol (val)
       // TODO: Get identifier values from scope.
       , (string a) => RTValueOrSymbol (a)
-      , (const ExpressionArg [][] arrayElementExpressions) =>
+      , (const ArrayArgs!ExpressionArg arrayElementExpressions) =>
         RTValueOrSymbol (createArray (
-          arrayElementExpressions
+          arrayElementExpressions.args
           , ruleTree
         ))
-      , (const ExpressionArg [][] * sumTypeArgs) =>
+      /+, (const ExpressionArg [][] * sumTypeArgs) =>
         RTValueOrSymbol (createSumType (
           * sumTypeArgs
           , ruleTree
-        ))
+        ))+/
+      , (const SumTypeArgs!ExpressionArg sumTypeArgs) {
+          debug writeln (`Got as sumtype args `, sumTypeArgs);
+          return RTValueOrSymbol (RTValue (I32, Var (777)));
+      }
     )
   ).array;
   if (args.length == 1 && args [0]._is!RTValue) {
@@ -371,6 +375,11 @@ RTValueOrErr executeFromExpressions (
   , RTValue [] lastResult
   , ref RuleTree ruleTree
 ) {
+  /+
+  if (expressions.length == 0) {
+    assert (lastResult.length == 1);
+    return RTValueOrErr (lastResult [0]);
+  }+/
   foreach (expression; expressions) {
     auto result = executeFromExpression (expression, lastResult, ruleTree);
     if (result._is!UserError) {

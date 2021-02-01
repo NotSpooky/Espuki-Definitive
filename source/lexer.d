@@ -224,8 +224,9 @@ LexRet asExpressions (R)(R inputLines, TypeScope typeScope) {
           enum regexTypes = [
             RegexType (ctRegex!`^[0-9]+\.[0-9]+`, floatLiteral)
             , RegexType (ctRegex!`^[0-9]+`, integerLiteral)
-            , RegexType (ctRegex!`^\p{Ll}[\w]*`, identifier)
-            , RegexType (ctRegex!`^\p{Lu}[\w]+`, typeIdentifier)
+            /+, RegexType (ctRegex!`^\p{Ll}[\w]*`, identifier)
+            , RegexType (ctRegex!`^\p{Lu}[\w]+`, typeIdentifier) +/
+            , RegexType (ctRegex!`\w+`, identifier)
             , RegexType (ctRegex!`^\_[0-9]*`, underscoreIdentifier)
             , RegexType (ctRegex!`^\\`, backslash) // Might be better to handle above
           ];
