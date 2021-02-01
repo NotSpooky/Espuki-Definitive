@@ -252,8 +252,8 @@ RTValueOrErr lastMatchResult (
   );
 }
 
-RTValue createArray (const ExpressionArg [][] args, ref RuleTree ruleTree) {
-  auto subValues = args.map! (
+auto subValues (const ExpressionArg [][] args, ref RuleTree ruleTree) {
+  return args.map! (
     (eA) {
       auto arrElement = executeFromExpression (
         Expression (eA, Nullable!string (null))
@@ -271,19 +271,39 @@ RTValue createArray (const ExpressionArg [][] args, ref RuleTree ruleTree) {
       }
     }
   );
+}
 
-  if (subValues.empty) {
+RTValue createArray (const ExpressionArg [][] args, ref RuleTree ruleTree) {
+  auto subVs = subValues (args, ruleTree);
+
+  if (subVs.empty) {
     return RTValue (EmptyArray, Var (null));
   }
-  const elType = subValues.front.type;
+  const elType = subVs.front.type;
   auto retType = Array.instance ([RTValue (Kind, Var (elType))]);
   assert (retType._is!TypeId, retType.get!UserError.message);
-  Var [] afterConversionArray = [subValues.front.value];
-  subValues.popFront ();
-  foreach (arrElement; subValues) {
+  Var [] afterConversionArray = [subVs.front.value];
+  subVs.popFront ();
+  foreach (arrElement; subVs) {
     afterConversionArray ~= arrElement.tryImplicitConversion (elType).value;
   }
   return RTValue (retType.get!TypeId, Var (afterConversionArray));
+}
+
+RTValue createSumType (const ExpressionArg [][] args, ref RuleTree ruleTree) {
+  auto subVs = subValues (args, ruleTree);
+  assert (!subVs.empty);
+  import std.exception : enforce;
+  // TODO: Create correct Exception
+  auto asArray = subVs
+    .tee! (s => enforce (s.type == Kind))
+    .array;
+  auto toRet = SumType.instance (asArray);
+  if (toRet._is!UserError) {
+    throw new Exception (toRet.get!UserError.message);
+  } else {
+    return RTValue (Kind, Var (toRet.get!TypeId));
+  }
 }
 /// Finds appropriate rules to match the expression and returns the result
 /// of applying those rules to the match.
@@ -318,10 +338,16 @@ RTValueOrErr executeFromExpression (
       , (RTValue val) => RTValueOrSymbol (val)
       // TODO: Get identifier values from scope.
       , (string a) => RTValueOrSymbol (a)
-      , (const arrayElementExpressions) => RTValueOrSymbol (createArray (
-        arrayElementExpressions
-        , ruleTree
-      ))
+      , (const ExpressionArg [][] arrayElementExpressions) =>
+        RTValueOrSymbol (createArray (
+          arrayElementExpressions
+          , ruleTree
+        ))
+      , (const ExpressionArg [][] * sumTypeArgs) =>
+        RTValueOrSymbol (createSumType (
+          * sumTypeArgs
+          , ruleTree
+        ))
     )
   ).array;
   if (args.length == 1 && args [0]._is!RTValue) {

@@ -14,6 +14,7 @@ private union EArg {
   string identifierOrSymbol;
   RTValue literalValue;
   This [][] arrayArgs;
+  This [][] * sumTypeArgs; // There should be a better way of doing this.
 }
 
 alias ExpressionArg = TaggedVariant!EArg;
@@ -191,6 +192,8 @@ MaybeExpressionArgs toExpressionArgs (
           }
           toRet ~= ExpressionArg (arrayContents);
           break;
+        case verticalLine:
+          
         default:
           return MaybeExpressionArgs (toRet []);
       }
