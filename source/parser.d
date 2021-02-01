@@ -164,7 +164,7 @@ MaybeExpressionArgs toExpressionArgs (
             auto ptr = new Expression [][1];
             ptr [0] = [Expression (subExprArgs, Nullable!string (null))];
             toRet ~= ExpressionArg (
-              RTValue (ArrayOfExpressions, Var (cast (void *) ptr.ptr))
+              RTValue (ArrayOfExpressions, Var (Expressions (ptr.ptr)))
             );
             // '}' popped automatically.
           } else {

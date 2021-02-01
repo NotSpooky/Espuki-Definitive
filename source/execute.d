@@ -78,6 +78,16 @@ struct NamedType {
   string name;
   TypeId type;
 }
+struct Expressions {
+  private void * ptr;
+  this (Expression [] * ptr) {
+    assert (ptr !is null);
+    this.ptr = ptr;
+  }
+  auto expressions () const {
+    return *(cast (Expression [] *) ptr);
+  }
+}
 alias Var = Variant! (
   float
   , string
@@ -87,7 +97,7 @@ alias Var = Variant! (
   , TypeId []
   , This [] // For arrays.
   , typeof (null)
-  , void * /* is Expression [] * */
+  , Expressions /* is Expression [] * */
 );
 
 /// A value in the interpreter.

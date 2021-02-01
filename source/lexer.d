@@ -226,8 +226,8 @@ LexRet asExpressions (R)(R inputLines, TypeScope typeScope) {
             , RegexType (ctRegex!`^[0-9]+`, integerLiteral)
             /+, RegexType (ctRegex!`^\p{Ll}[\w]*`, identifier)
             , RegexType (ctRegex!`^\p{Lu}[\w]+`, typeIdentifier) +/
-            , RegexType (ctRegex!`\w+`, identifier)
             , RegexType (ctRegex!`^\_[0-9]*`, underscoreIdentifier)
+            , RegexType (ctRegex!`\w+`, identifier)
             , RegexType (ctRegex!`^\\`, backslash) // Might be better to handle above
           ];
           bool foundMatchingRegex = false;

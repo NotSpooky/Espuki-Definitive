@@ -90,7 +90,7 @@ shared static this () {
         );+/
         import parser : Expression;
         auto result = executeFromExpressions (
-          * ((cast (Expression [] *) args [1].value.get! (void *)))
+          args [1].value.get! (Expressions).expressions
           , [args [0]]
           , ruleTree
         );
