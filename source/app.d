@@ -13,9 +13,14 @@ void main (string [] args) {
   import mir.algebraic : visit;
   auto result = executeFromLines (File (args [1]).byLineCopy ());
   result.visit! (
-    (RTValue val) { writeln (val); }
+    (RTValue val) {
+      writeln (val);
+      // TODO: Exit with code.
+    }
     , (UserError ue) {
       stderr.writeln (`Error `, ue.message);
+      // TODO: Exit with code.
     }
   );
+
 }

@@ -204,16 +204,33 @@ MaybeExpressionArgs toExpressionArgs (
           break;
         case verticalLine:
           tokens.popFront ();
+          if (tokens.empty) {
+            return MaybeExpressionArgs (UserError (
+              `Cannot end line with '|'`
+            ));
+          }
           auto otherTypes = toExpressionArgs (tokens, scope_);
           if (otherTypes._is!UserError) {
             return otherTypes;
           }
           auto otherTypesAsEA = otherTypes.get! (ExpressionArg []);
-          auto sT = SumTypeArgs!ExpressionArg ([toRet []]);
-          auto eA = ExpressionArg (sT);
-          return MaybeExpressionArgs (
-            [eA]
-          );
+          assert (otherTypesAsEA.length == 1);
+          auto accum = otherTypesAsEA [0];
+          auto toRetArr = [toRet []];
+          SumTypeArgs!ExpressionArg genSumType;
+          if (accum._is! (SumTypeArgs!ExpressionArg)) {
+            // Flatten the SumTypeArgs to a single one.
+            genSumType = SumTypeArgs!ExpressionArg (
+              toRetArr ~ accum.get!(SumTypeArgs!ExpressionArg).args
+            );
+          } else {
+            // expression to type | the next expression to type
+            genSumType = SumTypeArgs!ExpressionArg (
+              toRetArr ~ otherTypesAsEA
+            );
+          }
+          auto eA = ExpressionArg (genSumType);
+          return MaybeExpressionArgs ([eA]);
           /+
           //toRet = typeof (toRet).init;
 

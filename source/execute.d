@@ -1,5 +1,6 @@
 import mir.algebraic;
 import std.conv : text, to;
+import std.exception : enforce;
 import std.typecons : Tuple, tuple;
 import parser : Expression, ExpressionArg, SumTypeArgs, ArrayArgs;
 
@@ -11,36 +12,150 @@ struct UserError {
   }
 }
 
-struct ParametrizedType {
+/// Used to create parametrized types.
+struct ParametrizedKind {
+  TypeId [] argTypes;
+  string baseName;
+  TypeId [RTValue []] instances;
+  this (string baseName, TypeId [] argTypes) {
+    this.baseName = baseName;
+    this.argTypes = argTypes;
+  }
+
+  TypeId instance (const RTValue [] args, TypeInfo_ delegate () createTypeInfo) {
+    // First check whether this has already been instanced.
+    auto inInstances = args in instances;
+    if (inInstances) {
+      // Yes, return it.
+      return *inInstances;
+    } else {
+      // No, create the new instance.
+      const toRet = globalTypeInfo.length;
+      globalTypeInfo ~= createTypeInfo ();
+      instances [args] = toRet;
+      return toRet;
+    }
+  }
+
+  TypeId instance (const RTValue [] args, size_t size) {
+    // Args should have the Kind's expected types.
+    if (
+      zip (StoppingPolicy.requireSameLength, args.map!`a.type`, argTypes)
+        .all! (a => a [0].isSubTypeOf (a [1]))
+    ) {
+      // Types match.
+      return instance (args, () => new ParametrizedTypeInfo (
+        &this
+        , args
+        , size //args.map! (a => globalTypeInfo [a.value.get!TypeId].size).sum
+      ));
+    } else {
+      throw new Exception (text (
+        `Arguments `, args, ` don't match ` ~ baseName, `'s params: `, argTypes
+      ));
+    }
+  }
+}
+
+// Note: Verbose name because TypeId == long.
+RTValue typeToRTValue (TypeId type) {
+  return RTValue (Kind, Var (type));
+}
+
+TypeId arrayOf (TypeId elementType) {
+  const asRTVals = [typeToRTValue (elementType)];
+  return Array.instance (asRTVals, () => new ArrayTypeInfo (elementType));
+}
+
+TypeId sumTypeOf (RTValue [] typeIds) {
+  import std.exception : enforce; 
+  return SumType.instance (typeIds, () => new ParametrizedTypeInfo (
+    &SumType
+    , typeIds
+    , uint.sizeof /* As of now, current type will be stored on UI32 */
+      + typeIds
+        // TODO: Use correct type of exception.
+        .tee! (t => enforce (t.type == Kind, `Non-type used for sumtype creation`))
+        .map! (t => globalTypeInfo [t.value.get!TypeId].size)
+        .maxElement
+  ));
+}
+
+TypeId structTypeOf (RTValue [] members) {
+  return Struct.instance (members, () => new StructTypeInfo (members));
+}
+
+class TypeInfo_ {
+  const size_t size;
+  this (size_t size) {
+    this.size = size;
+  }
+}
+
+class PrimitiveTypeInfo  : TypeInfo_ {
+  string name;
+  this (string name, size_t size) {
+    super (size);
+    this.name = name;
+  }
+  override string toString () {
+    return name;
+  }
+}
+
+class ParametrizedTypeInfo : TypeInfo_ {
   const ParametrizedKind * kind;
   const RTValue [] args;
-  this (ParametrizedKind * kind, const RTValue [] args) {
+  this (ParametrizedKind * kind, const RTValue [] args, size_t size) {
     assert (kind !is null);
+    super (size);
     this.kind = kind;
     this.args = args;
   }
-  void toString (
-    scope void delegate (const (char)[]) sink
-  ) {
-    sink (kind.baseName);
-    sink (` (`);
-    // Kinda defeats the purpose of using sink lol.
-    sink (
+  override string toString () {
+    return kind.baseName ~ ` (` ~
       args.map! (a => a.value.visit! (b => b.to!string))
-      .joiner (`, `)
-      .to!string
-    );
-    sink (`)`);
+        .joiner (`, `)
+        .to!string
+    ~ `)`;
   }
 }
 
-private union Types {
-  string primitiveName;
-  ParametrizedType parametrizedType;
+class ArrayTypeInfo : ParametrizedTypeInfo {
+  const size_t elementSize; // Just a cache, coulf be calculated automatically.
+  this (const TypeId elementType) {
+    super (
+      &Array
+      , [RTValue (Kind, Var (elementType))]
+      , (void *).sizeof + size_t.sizeof
+    );
+    this.elementSize = globalTypeInfo [elementType].size;
+  }
+  override string toString () {
+    return globalTypeInfo [args [0].value.get!TypeId].toString () ~ ` []`;
+  }
 }
 
-alias TypeData = TaggedVariant!Types;
-TypeData [] globalTypeData;
+class StructTypeInfo : ParametrizedTypeInfo {
+  size_t [string] offsets;
+  this (const RTValue [] members) {
+    auto totalSize = 0;
+    foreach (member; members) {
+      enforce (member.type == NamedTypeT);
+      auto namedType = member.value.get!NamedType;
+      const memberS = globalTypeInfo [namedType.type].size;
+      offsets [namedType.name] = totalSize;
+      totalSize += size;
+    }
+    super (
+      &Struct
+      , members
+      , (void *).sizeof /+ Structs will store a void * for now  +//+totalSize+/
+    );
+  }
+}
+
+TypeInfo_ [] globalTypeInfo;
 
 /// As of now just handles type equality by id.
 bool isSubTypeOf (TypeId type, TypeId parent) {
@@ -59,7 +174,7 @@ RTValue tryImplicitConversion (ref RTValue val, TypeId objective) {
     return val;
   } else {
     throw new Exception (
-      text (val, ` canot be converted to `, globalTypeData [objective])
+      text (val, ` canot be converted to `, globalTypeInfo [objective])
     );
   }
 }
@@ -78,6 +193,17 @@ struct NamedType {
   string name;
   TypeId type;
 }
+
+struct StructType {
+  size_t [TypeId] offsets;
+  @disable this ();
+  this (TypeId [] memberTypes) {
+    
+  }
+}
+
+// For avoiding circular structures in Var without using the This type several
+// layers below.
 struct Expressions {
   private void * ptr;
   this (Expression [] * ptr) {
@@ -95,10 +221,10 @@ alias Var = Variant! (
   , TypeId
   , NamedType
   , NamedType []
-  , TypeId []
-  , This [] // For arrays.
+  , This [] // For arrays and structs.
   , typeof (null)
   , Expressions /* is Expression [] * */
+  , StructType
 );
 
 /// A value in the interpreter.
@@ -113,10 +239,7 @@ struct RTValue {
   void toString (
     scope void delegate (const (char)[]) sink
   ) const {
-    sink (globalTypeData [this.type].visit! (
-      (string name) => name
-      , (ParametrizedType pt) => pt.to!string ())
-    );
+    sink (globalTypeInfo [this.type].toString ());
     sink (` `);
     if (value._is!(Var [])) {
       sink (`[`);
@@ -134,47 +257,18 @@ struct RTValue {
 }
 
 alias TypeOrErr = Variant! (TypeId, UserError);
-struct ParametrizedKind {
-  TypeId [] argTypes;
-  string baseName;
-  TypeId [RTValue []] instances;
-  this (string baseName, TypeId [] argTypes) {
-    this.baseName = baseName;
-    this.argTypes = argTypes;
-  }
-  auto instance (const RTValue [] args) {
-    if (
-      ! zip (StoppingPolicy.requireSameLength, args.map!`a.type`, argTypes)
-        .all! (a => a [0].isSubTypeOf (a [1]))
-    ) {
-      return TypeOrErr (UserError (
-        `Arguments `, args, ` don't match ` ~ baseName, `'s params: `, argTypes
-      ));
-    } else {
-      auto inInstances = args in instances;
-      if (inInstances) {
-        return TypeOrErr (*inInstances);
-      } else {
-        const toRet = globalTypeData.length;
-        globalTypeData ~= TypeData (ParametrizedType (&this, args));
-        //parametrizedInstances [this, args] = toRet;
-        return TypeOrErr (toRet);
-      }
-    }
-  }
-}
 
 struct ValueScope {
   RTValue [string] values;
-  TypeOrErr addType (string identifier) {
+  TypeOrErr addType (string identifier, size_t size) {
     auto toRet = TypeOrErr (UserError (
       `Type ` ~ identifier ~ ` already exists in the scope`)
     );
     this.values.require (
       identifier
       , {
-        const typeId = globalTypeData.length;
-        globalTypeData ~= TypeData (identifier);
+        const typeId = globalTypeInfo.length;
+        globalTypeInfo ~= new PrimitiveTypeInfo (identifier, size);
         toRet = TypeOrErr (typeId);
         return RTValue (Kind, Var(typeId));
       } ()
@@ -232,13 +326,14 @@ RTValueOrErr lastMatchResult (
     ), (MatchWithPos mwp) {
       // There's a match and it ends at mwp.position.
       // Apply the rule corresponding to the found match.
-      auto matchResultVal = RTValueOrErr (mwp.rule.apply (
+      auto matchResultVal = mwp.rule.apply (
         args
           .filter! (a => a._is!RTValue)
           .map! (a => a.get!RTValue)
           .array
         , ruleTree
-      ));
+      );
+      //auto matchResultVal = RTValueOrErr (owo);
       return matchResultVal.visit! (
         // If errored, just pass it.
         (UserError ue) => matchResultVal
@@ -263,11 +358,16 @@ RTValueOrErr lastMatchResult (
   );
 }
 
-RTValue subValue (const ExpressionArg [] args, ref RuleTree ruleTree) {
+RTValue subValue (
+  const ExpressionArg [] args
+  , ref RuleTree ruleTree
+  , ref ValueScope scope_
+) {
   auto result = executeFromExpression (
     Expression (args, Nullable!string (null))
     , [] // Last result isn't sent to subexpressions.
     , ruleTree
+    , scope_
   );
   if (result._is!UserError) {
     throw new Exception (
@@ -279,38 +379,96 @@ RTValue subValue (const ExpressionArg [] args, ref RuleTree ruleTree) {
   }
 }
 
-auto subValues (const ExpressionArg [][] args, ref RuleTree ruleTree) {
-  return args.map! (eA => subValue (eA, ruleTree));
+auto subValues (
+  const ExpressionArg [][] args
+  , ref RuleTree ruleTree
+  , ref ValueScope scope_
+) {
+  return args.map! (eA => subValue (eA, ruleTree, scope_));
 }
 
-RTValue createArray (const ExpressionArg [][] args, ref RuleTree ruleTree) {
+RTValue createArray (
+  const ExpressionArg [][] args
+  , ref RuleTree ruleTree
+  , ref ValueScope scope_
+) {
   if (args.empty) {
     return RTValue (EmptyArray, Var (null));
   }
-  auto subVs = subValues (args, ruleTree);
+  auto subVs = subValues (args, ruleTree, scope_);
   const elType = subVs.front.type;
-  auto retType = Array.instance ([RTValue (Kind, Var (elType))]);
-  assert (retType._is!TypeId, retType.get!UserError.message);
+  auto retType = arrayOf (elType);
   Var [] afterConversionArray = subVs
     .map! (s => s.tryImplicitConversion (elType).value)
     .array;
-  return RTValue (retType.get!TypeId, Var (afterConversionArray));
+  return RTValue (retType, Var (afterConversionArray));
 }
 
-RTValue createSumType (const ExpressionArg [][] args, ref RuleTree ruleTree) {
-  auto subVs = subValues (args, ruleTree);
+void addSumTypeMethods (
+  ref RuleTree
+  , RTValue sumTypeType
+  , TypeId [] sumTypeTypes // Member types.
+) {
+  debug writeln (`TODO: Add sumtype methods`);
+  /+
+  // TODO: Consider scope.
+  ruleTree.addRule (
+    Rule (
+      [
+        TypeOrSymbol (I32) // = sumTypeType, not Kind
+        , TypeOrSymbol (ArrayOfExpressions)] // Instance of each of sumTypeTypes
+      , (
+        in RTValue [] args
+        , ref RuleTree ruleTree
+      ) {
+        assert (args.length == 2);
+        /+debug writeln (
+          "Apply called, will now execute with:\n\t"
+          , args [0].value, ` in `, args [1].value
+        );+/
+        import parser : Expression;
+        auto result = executeFromExpressions (
+          args [1].value.get! (Expressions).expressions
+          , [args [0]]
+          , ruleTree
+          , globalScope
+        );
+        //debug writeln (`Apply result: `, result);
+        return result;
+      }
+    )
+  );
+  +/
+}
+
+RTValue createSumType (
+  const ExpressionArg [][] args
+  , ref RuleTree ruleTree
+  , ref ValueScope scope_
+) {
+  // First arg is the added type, second either a normal type or a sumtype.
+  debug writeln (`Args for sumtype: `, args);
+  auto subVs = subValues (args, ruleTree, scope_).array;
+  debug writeln (`Types in sumtype `, subVs.map!(s => s.value.get!TypeId));
   assert (!subVs.empty);
-  import std.exception : enforce;
-  // TODO: Create correct Exception
-  auto asArray = subVs
-    .tee! (s => enforce (s.type == Kind))
-    .array;
-  auto toRet = SumType.instance (asArray);
-  if (toRet._is!UserError) {
-    throw new Exception (toRet.get!UserError.message);
-  } else {
-    return RTValue (Kind, Var (toRet.get!TypeId));
+  auto toRet = sumTypeOf (subVs);
+  foreach (const subV; subVs) {
+      (const RTValue subV) {
+      ruleTree.addRule (Rule (
+        // TODO: Match this sumtype specifically instead of any kind.
+        [TypeOrSymbol (Kind), TypeOrSymbol (subV.value.get!TypeId)]
+        , (
+          in RTValue [] rArgs
+          , ref RuleTree ruleTree
+        ) {
+          debug writeln (`Instanced `, globalTypeInfo [toRet].toString, ` with `, subV.value.get!TypeId);
+          assert (rArgs.length == 2);
+          return RTValueOrErr (RTValue (subV.value.get!TypeId, rArgs [1].value));
+        }
+      )); 
+    } (subV);
   }
+  return typeToRTValue (toRet);
 }
 /// Finds appropriate rules to match the expression and returns the result
 /// of applying those rules to the match.
@@ -321,6 +479,7 @@ RTValueOrErr executeFromExpression (
   in Expression expression
   , in RTValue [] lastResult
   , ref RuleTree ruleTree
+  , ref ValueScope scope_
 ) {
   assert (
     lastResult.length <= 1
@@ -334,7 +493,9 @@ RTValueOrErr executeFromExpression (
   ] : []) ~ expression.args.map! (a =>
     a.visit! (
       (const Expression * subExpr) {
-        auto subExprRet = executeFromExpression (*subExpr, lastResult, ruleTree);
+        auto subExprRet = executeFromExpression (
+          *subExpr, lastResult, ruleTree, scope_
+        );
         if (subExprRet._is!RTValue) {
           auto result = subExprRet.get!RTValue;
           return RTValueOrSymbol (result);
@@ -342,18 +503,27 @@ RTValueOrErr executeFromExpression (
           throw new Exception (subExprRet.get!UserError.message);
         }
       }
+      // Already a value, nothing to do.
       , (RTValue val) => RTValueOrSymbol (val)
-      // TODO: Get identifier values from scope.
-      , (string a) => RTValueOrSymbol (a)
+      , (string a) {
+        // If the string is an identifier in the scope, use that value,
+        // else treat is as a symbol.
+        auto inScope = a in scope_.values;
+        if (inScope) {
+          return RTValueOrSymbol (*inScope);
+        }
+        return RTValueOrSymbol (a);
+      }
       , (const ArrayArgs!ExpressionArg arrayElementExpressions)
         => RTValueOrSymbol (createArray (
           arrayElementExpressions.args
           , ruleTree
+          , scope_
         ))
       , (const ExpressionArg [] subExpression)
-        => RTValueOrSymbol (subValue (subExpression, ruleTree))
+        => RTValueOrSymbol (subValue (subExpression, ruleTree, scope_))
       , (const SumTypeArgs!ExpressionArg sumTypeArgs) 
-        => RTValueOrSymbol (createSumType (sumTypeArgs.args, ruleTree))
+        => RTValueOrSymbol (createSumType (sumTypeArgs.args, ruleTree, scope_))
     )
   ).array;
   if (args.length == 1 && args [0]._is!RTValue) {
@@ -378,6 +548,7 @@ RTValueOrErr executeFromExpressions (
   in Expression [] expressions
   , RTValue [] lastResult
   , ref RuleTree ruleTree
+  , ref ValueScope scope_
 ) {
   /+
   if (expressions.length == 0) {
@@ -385,7 +556,9 @@ RTValueOrErr executeFromExpressions (
     return RTValueOrErr (lastResult [0]);
   }+/
   foreach (expression; expressions) {
-    auto result = executeFromExpression (expression, lastResult, ruleTree);
+    auto result = executeFromExpression (
+      expression, lastResult, ruleTree, scope_
+    );
     if (result._is!UserError) {
       return result;
     } else {
@@ -401,11 +574,11 @@ debug import std.stdio;
 import std.range;
 RTValueOrErr executeFromLines (R)(R lines) if (is (ElementType!R == string)) {
   import lexer : asExpressions;
-  import intrinsics : globalTypes, globalRules;
+  import intrinsics : globalScope, globalRules;
   auto ruleTree = RuleTree (globalRules.rules);
-  return asExpressions (lines, globalTypes).visit! (
+  return asExpressions (lines, globalScope).visit! (
     (Expression [] expressions) { 
-      return executeFromExpressions (expressions, [], ruleTree);
+      return executeFromExpressions (expressions, [], ruleTree, globalScope);
     }
     , (UserError ue) {
       stderr.writeln (`Error: `, ue.message);
@@ -612,7 +785,6 @@ struct RuleTree {
       // Keep the current splitting point.
       return following.visit! (
         (Rule currentRule) {
-          import std.exception : enforce;
           enforce (rArgsLen != commonLen, text (
             `Rule `, rule
             , ` has same parameters as existing one: `, currentRule

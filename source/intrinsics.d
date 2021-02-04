@@ -14,13 +14,14 @@ TypeId NamedTypeT;
 TypeId ExpressionT;
 ParametrizedKind Array;
 ParametrizedKind SumType;
+ParametrizedKind Struct;
 TypeId EmptyArray; // Not an instance of array, has special rules.
 TypeId ArrayOfTypes;
 // Note: To prevent forward refs, this uses void * (which is an Expression [] *)
 TypeId ArrayOfExpressions;
 
 RuleScope * globalRules;
-ValueScope globalTypes;
+ValueScope globalScope;
 
 /+
 Rule identity (TypeId [] types) {
@@ -41,7 +42,8 @@ Rule identity (TypeId [] types) {
 +/
 
 private TypeId addPrimitive (string name) {
-  return globalTypes.addType (name).get!TypeId;
+  // As of now, all variables will be stored on a Var, so that'll be the size.
+  return globalScope.addType (name, Var.sizeof).get!TypeId;
 }
 
 shared static this () {
@@ -56,25 +58,25 @@ shared static this () {
   Array = ParametrizedKind (
     `Array`, [Kind]
   );
-  ArrayOfTypes = Array.instance ([RTValue (Kind, Var (Kind))]).get!TypeId;
+  ArrayOfTypes = arrayOf (Kind);
   // Array of types should be here too?
   SumType = ParametrizedKind (
     `SumType`, [ArrayOfTypes]
   );
-  auto SymbolOrNamedType = SumType.instance (
-    [RTValue (ArrayOfTypes, Var ([Symbol, NamedTypeT]))]
-  ).get!TypeId;
-  auto ArrayOfSymbolOrNamedType = Array.instance (
-    [RTValue (Kind, Var (SymbolOrNamedType))]
-  ).get!TypeId;
-  ArrayOfExpressions = Array.instance (
-    [RTValue (Kind, Var (ExpressionT))]
-  ).get!TypeId;
+  Struct = ParametrizedKind (
+    `Struct`, [ArrayOfTypes]
+  );
+  auto SymbolOrNamedType = sumTypeOf (
+    [typeToRTValue (Symbol), typeToRTValue (NamedTypeT)]
+  );
+  auto ArrayOfSymbolOrNamedType = arrayOf (SymbolOrNamedType);
+  ArrayOfExpressions = arrayOf (ExpressionT);
 
   globalRules = new RuleScope ([
+    // I32 plus I32
     fromD!plus (automaticParams!plus (1))
     , fromD!writeString (automaticParams!writeString (0, `writeln`))
-    , Rule (
+    , Rule ( // apply Expression []
       [
         TypeOrSymbol (I32)
         , TypeOrSymbol (`apply`)
@@ -93,12 +95,13 @@ shared static this () {
           args [1].value.get! (Expressions).expressions
           , [args [0]]
           , ruleTree
+          , globalScope
         );
         //debug writeln (`Apply result: `, result);
         return result;
       }
     )
-    , Rule (
+    , Rule ( // Symbol | NamedType [] Expression [] // TODO: Change to new syntax
       [TypeOrSymbol (ArrayOfSymbolOrNamedType), TypeOrSymbol (ArrayOfExpressions)]
       , (
         in RTValue [] args
