@@ -1,4 +1,4 @@
-module functree;
+module rulematcher;
 
 import std.algorithm;
 import std.range;
@@ -6,6 +6,7 @@ import mir.algebraic;
 import std.conv : text, to;
 debug import std.stdio;
 import intrinsics;
+import execute;
 
 alias RuleValue = Variant! (TypeId, RTValue, EndOfRule);
 const eor = RuleValue (EndOfRule());
@@ -17,110 +18,123 @@ string toString (RuleParam rp) {
     , (TypeId type) => toString (type)
   );
 }
-struct Rule2 {
-  string r;
-  RuleParam [] params;
-  @disable this ();
-  this (string r, RuleParam [] params) {
-    this.r = r;
-    this.params = params;
-  }
+
+alias SetOfRuleP = bool [Rule *];
+
+auto ruleFrom (string r, RuleParam [] vals) {
+  return Rule (
+    vals
+    , (in RTValue [] inputs, ref RuleMatcher ruleMatcher) {
+      return RTValue (I32, Var (999));
+    }
+  );
 }
 
-alias SetOfRuleP = bool [Rule2 *];
-
-import execute;
+auto toRuleValue (RuleParam ruleParam) {
+  return ruleParam.visit! (a => RuleValue (a));
+}
 unittest {
-  auto rules = Rules ([]);
-  void testRule (RuleValue [] vals) {
-    rules.matchRule (vals ~ [eor]).writeln ();
-  }
-  auto ruleFrom (string r, RuleValue [] vals) {
-    return Rule2 (
-      r
-      , vals
-        .tee! (a => assert (!a._is!EndOfRule))
-        .map! (a => a.visit! (
-          (EndOfRule e) => RuleParam (I8)
-          , (v => RuleParam (v))
-        ))
-        .array
-    );
-  }
-  auto rule1Params = [RuleValue (I32), RuleValue (I32)];
+  auto rules = RuleMatcher ([]);
+  auto rule1Params = [RuleParam (I32), RuleParam (I32)];
   auto example1 = ruleFrom (`first`, rule1Params);
-  rules.addRule (&example1, rule1Params);
-  testRule (rule1Params);
-  auto rule2Params = rule1Params ~ [RuleValue (String)];
+  rules.addRule (&example1);
+  auto args1 = [RTValue (I32, Var (1)), RTValue (I32, Var (2))];
+  assert (rules.matchRule (args1) == example1);
+  auto rule2Params = rule1Params ~ [RuleParam (String)];
   auto example2 = ruleFrom (`second`, rule2Params);
-  rules.addRule (&example2, rule2Params);
-  testRule (rule2Params);
-  testRule (rule1Params);
-  auto rule3Params = [RuleValue (I64), RuleValue (I32)];
+  rules.addRule (&example2);
+  auto args2 = args1 ~ RTValue (String, Var (`Olis`));
+  assert (rules.matchRule (args2) == example2);
+  assert (rules.matchRule (args1) == example1);
+  auto rule3Params = [RuleParam (I64), RuleParam (I32)];
   auto example3 = ruleFrom (`third`, rule3Params);
-  rules.addRule (&example3, rule3Params);
-  testRule (rule1Params);
+  rules.addRule (&example3);
+  assert (rules.matchRule (args1) == example1);
+  auto args3 = [RTValue (I64, Var (500L)), RTValue (I32, Var (4))];
+  assert (rules.matchRule (args3) == example3);
 }
 struct EndOfRule {}
 
-struct Rules {
+struct RuleMatcher {
   SetOfRuleP [RuleValue] [] setsForPositions;
 
-  auto addRule (Rule2 * toAdd, RuleValue [] ruleVals) {
-    const rValLen = ruleVals.length;
+  this (ref Rule [] rules) {
+    foreach (ref rule; rules) {
+      this.addRule (& rule);
+    }
+  }
+
+  auto addRule (Rule * toAdd) {
+    const rValLen = toAdd.params.length;
     if (setsForPositions.length < rValLen + 1) {
       setsForPositions.length = rValLen + 1;
     }
-    foreach (i, ruleVal; ruleVals) {
+    foreach (i, ruleVal; toAdd.params.map!toRuleValue.enumerate) {
       setsForPositions [i][ruleVal][toAdd] = true;
     }
     setsForPositions [rValLen][eor][toAdd] = true;
   }
-  
-  private auto rulesMatching (alias OnSet)(in RuleValue ruleValue, size_t index) {
 
-    OnSet (setsForPositions [index][ruleValue]);
-    ruleValue.visit! (
-      (EndOfRule eor) {}
-      , (RTValue val) {
-        foreach (generalType; val.type.visitTypeConvs ()) {
-          const convValInSet
-            = RuleValue (val.tryImplicitConversion (generalType))
-              in setsForPositions [index];
-          if (convValInSet) {
-            OnSet (*convValInSet);
-          }
-        }
+  private auto rulesMatching (alias OnSet)(in TypeId type, size_t index) const {
+    // Note: visitTypeConvs includes itself, so no checking for RuleValue (type)
+    // is needed.
+    foreach (generalType; type.visitTypeConvs ()) {
+      const genValInSet = RuleValue (generalType) in setsForPositions [index];
+      if (genValInSet) {
+        OnSet (*genValInSet);
       }
-      , (TypeId type) {
-        foreach (generalType; type.visitTypeConvs ()) {
-          const genValInSet = RuleValue (generalType) in setsForPositions [index];
-          if (genValInSet) {
-            OnSet (*genValInSet);
-          }
-        }
-      }
-    );
+    }
   }
 
-  auto matchRule (in RuleValue [] ruleVals) {
-    assert (ruleVals.length > 0);
-    assert (ruleVals [$-1] == eor);
-    const (Rule2) * [] matches;
+  private void rulesMatching (alias OnSet)(in RTValue val, size_t index) const {
+    auto valInSet = RuleValue (val) in setsForPositions [index];
+    if (valInSet) {
+      OnSet (*valInSet);
+    }
+    foreach (generalType; val.type.visitTypeConvs ()) {
+      const convValInSet
+        = RuleValue (val.tryImplicitConversion (generalType))
+          in setsForPositions [index];
+      if (convValInSet) {
+        OnSet (*convValInSet);
+      }
+    }
+    // Also match types.
+    rulesMatching!OnSet (val.type, index);
+  }
+
+  /// Advances inputs.
+  RTValue matchAndExecuteRule (ref RTValue [] inputs) {
+    auto matched = this.matchRule (inputs);
+    RTValue toRet = matched.applyFun (inputs, this);
+    inputs = inputs [matched.params.length .. $];
+    return toRet;
+  }
+
+
+  const (Rule) matchRule (ref RTValue [] inputs) {
+    assert (inputs.length > 0);
+    const (Rule) * [] matches;
     SetOfRuleP possibleMatches;
     // Fill possibleMatches.
     rulesMatching! ((s) {
       foreach (ruleP; s.keys) {
         possibleMatches [ruleP] = true;
       }
-    }) (ruleVals [0], 0);
+    }) (inputs [0], 0);
+    debug writeln (`Possible matches is `, possibleMatches);
 
-    foreach (i, ruleVal; ruleVals [1..$]) {
+    foreach (i, ruleVal; inputs [1..$]) {
+      if (setsForPositions.length == i) {
+        break;
+      }
+      // debug writeln (`Matching `, ruleVal);
       //debug writeln (`POS `, i);
       // For next iteration.
       SetOfRuleP savedPossibleMatches;
       rulesMatching! ((setOfRules) {
         // TODO: Optimization: use the smallest set for the loop.
+        //debug writeln (`Got a matching set of rules! `, setOfRules);
         foreach (ruleP; possibleMatches.keys) {
           if (ruleP in setOfRules) {
             savedPossibleMatches [ruleP] = true;
@@ -129,13 +143,15 @@ struct Rules {
       }) (ruleVal, i + 1);
       
       // Also check for rule end.
-      auto endingRulesAtPos = eor in setsForPositions [i + 1];
+      auto endingRulesAtPos = eor in setsForPositions [i + 2];
+      //debug writeln (`Eor in next pos? `, endingRulesAtPos);
       if (endingRulesAtPos) {
         // Check in possible matches because savedPossibleMatches doesn't
         // know about the eoc.
         auto endFound = possibleMatches.keys.filter! (
           k => k in * endingRulesAtPos
         ).array;
+        //debug writeln (`End found `, endFound);
         if (!endFound.empty) {
           // Bigger matches have priority, so discard all the previous ones.
           matches = endFound;
@@ -153,9 +169,18 @@ struct Rules {
       }
     }
     
+    // Let's validate the matches.
+    matches = matches.filter! (m => 
+      m.params.enumerate.all! ((r) {
+        auto dir = inputs [r [0]].implicitDir (r[1]);
+        return dir == ImplicitConversionDirection.firstToSecond
+          || dir == ImplicitConversionDirection.twoAreTheSame;
+      })
+    ).array;
+
     // Now let's check for specializations.
     if (matches.empty) {
-      throw new Exception (`No rule found for ` ~ ruleVals.to!string);
+      throw new Exception (`No rule found for ` ~ inputs.to!string);
     }
     auto bestMatch = matches.front;
     matches.popFront ();
@@ -182,12 +207,12 @@ struct Rules {
                 )
             ) {
               throw new Exception (text (
-                `Multuple rules match `, ruleVals, ":\n", bestMatch, '\n', alternative
+                `Multuple rules match `, inputs, ":\n", bestMatch, '\n', alternative
               ));
             } else if (dir == firstToSecond) {
-              specDir = alternativeIsSpec;
-            } else if (dir == secondToFirst) {
               specDir = bestMatchIsSpec;
+            } else if (dir == secondToFirst) {
+              specDir = alternativeIsSpec;
             }
           }
         }
