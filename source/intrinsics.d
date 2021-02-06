@@ -2,14 +2,19 @@ module intrinsics;
 
 import std.algorithm;
 import std.conv;
+import std.range;
 import execute;
 debug import std.stdio;
 
 TypeId Kind; // Just a Type of Type.
 TypeId String;
 TypeId Symbol;
+TypeId I8;
+TypeId I16;
 TypeId I32;
+TypeId I64;
 TypeId F32;
+TypeId F64;
 TypeId NamedTypeT;
 TypeId ExpressionT;
 ParametrizedKind Array;
@@ -23,23 +28,40 @@ TypeId ArrayOfExpressions;
 RuleScope * globalRules;
 ValueScope globalScope;
 
-/+
-Rule identity (TypeId [] types) {
-  return Rule (
-    // Single Type instanceOfType returns itself
-    [TypeOrSymbol (Kind)]
-    , (
-      in RTValue [] args
-      , ref RuleTree ruleTree
-    ) {
-      debug import std.stdio;
-      debug writeln (`Identity args `, args);
-      assert (args.length == 1);
-      return RTValueOrErr (args [0]);
+struct TypeImplicitConversions {
+  TypeId [] moreGeneral;
+
+  private auto visitT (TypeId type) const {
+    bool [TypeId] visitedTypes;
+    auto typesToTry = [type];
+    Appender! (TypeId []) toRet;
+    while (!typesToTry.empty) {
+      const t = typesToTry [$-1];
+      typesToTry = typesToTry [0 .. $-1];
+      toRet ~= t;
+      const tInImplicit = t in implicitConversions;
+      if (tInImplicit) {
+        foreach (generalType; (* tInImplicit).moreGeneral) {
+          visitedTypes.require (generalType, {
+            typesToTry ~= generalType;
+            return true;
+          } ());
+        }
+      }
     }
-  );
+    return toRet [];
+  }
 }
-+/
+
+TypeImplicitConversions [TypeId] implicitConversions;
+
+auto visitTypeConvs (TypeId type) {
+  auto tInImplicit = type in implicitConversions;
+  if (tInImplicit) {
+    return (*tInImplicit).visitT (type);
+  }
+  return TypeId [].init;
+}
 
 private TypeId addPrimitive (string name) {
   // As of now, all variables will be stored on a Var, so that'll be the size.
@@ -47,14 +69,27 @@ private TypeId addPrimitive (string name) {
 }
 
 shared static this () {
+  // Primitives:
   Kind = addPrimitive (`Kind`);
   String = addPrimitive (`String`);
   Symbol = addPrimitive (`Symbol`);
+  I8 = addPrimitive (`I8`);
+  I16 = addPrimitive (`I16`);
   I32 = addPrimitive (`I32`);
+  I64 = addPrimitive (`I64`);
   F32 = addPrimitive (`F32`);
+  F64 = addPrimitive (`F64`);
   NamedTypeT = addPrimitive (`NamedType`);
   ExpressionT = addPrimitive (`Expression`);
   EmptyArray = addPrimitive (`EmptyArray`);
+
+  // Implicit conversions:
+  implicitConversions [F32] = TypeImplicitConversions ([F64]);
+  implicitConversions [I32] = TypeImplicitConversions ([F64, I64]);
+  implicitConversions [I16] = TypeImplicitConversions ([F32, I32]);
+  implicitConversions [I8] = TypeImplicitConversions ([I16]);
+
+  // Parametrized types:
   Array = ParametrizedKind (
     `Array`, [Kind]
   );
@@ -171,8 +206,6 @@ Rule fromD (alias Fun) (TypeOrSymbol [] params = automaticParams!Fun) {
         +/
         mixin (q{auto arg} ~ i.to!string ~ q{ = args [i].value.get!Param ();});
       }
-      import std.range;
-      import std.algorithm;
       mixin (
         q{auto result = Fun (}
           ~ iota (Params.length)
@@ -181,7 +214,6 @@ Rule fromD (alias Fun) (TypeOrSymbol [] params = automaticParams!Fun) {
           .to!string 
         ~ q{);}
       );
-      import std.variant;
       return RTValueOrErr (RTValue (TypeMapping!RetType, Var (result)));
     }
   );

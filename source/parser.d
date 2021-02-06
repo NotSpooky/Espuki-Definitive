@@ -16,12 +16,16 @@ struct SumTypeArgs (T) {
 struct ArrayArgs (T) {
   T [][] args;
 }
+struct TupleArgs (T) {
+  T [][] args;
+}
 private union EArg {
   string identifierOrSymbol;
   RTValue literalValue;
   This [] subExpression;
   ArrayArgs!This arrayArgs;
   SumTypeArgs!This sumTypeArgs;
+  TupleArgs!This tupleArgs;
 }
 
 alias ExpressionArg = TaggedVariant!EArg;
@@ -111,6 +115,45 @@ MaybeParams ruleParams (Token [] tokens, ValueScope scope_) {
   return MaybeParams (RuleParamsWithArgs (rulePsToRet [], paramsToRet []));
 }
 
+ExpressionArg [][] nested (
+  ref Token [] tokens
+  , in ValueScope scope_
+  , Token.Type rightDelimiter
+  , Token.Type separator = Token.Type.comma
+) {
+  const errMessage = `Didn't find matching '` ~ rightDelimiter.to!string ~ `'`;
+  if (tokens.empty) {
+    throw new Exception (errMessage);
+  }
+  // First is left delimiter.
+  tokens.popFront ();
+  ExpressionArg [][] contents;
+  with (Token.Type) {
+    if (tokens.front.type != closingBracket) {
+      parseElement:
+        auto subArgs = toExpressionArgs (tokens, scope_);
+        if (subArgs._is!UserError) {
+          throw new Exception (subArgs.get!UserError.message);
+        }
+        if (tokens.empty) {
+          throw new Exception (errMessage ~ ` and finished line.`);
+        }
+        auto subExprArgs = subArgs.get! (ExpressionArg []);
+        contents ~= subExprArgs;
+        if (tokens.front.type == comma) {
+          tokens.popFront ();
+          goto parseElement;
+        }
+      if (tokens.front.type != rightDelimiter) {
+        throw new Exception (errMessage);
+      }
+      // rightDelimiter is popped automatically by the popFront
+      // in toExpressionArgs loop.
+    }
+    return contents;
+  }
+}
+
 struct Success {}
 alias SuccessOrError = Variant! (Success, UserError);
 alias MaybeExpressionArgs = Variant! (ExpressionArg [], UserError);
@@ -173,34 +216,21 @@ MaybeExpressionArgs toExpressionArgs (
             // There are function rule params.
           }
           break;
+        case openingParenthesis:
+          auto subExprs = nested (
+            tokens, scope_, closingParenthesis, comma
+          );
+          if (subExprs.length == 1) {
+            toRet ~= ExpressionArg (subExprs [0]);
+          } else {
+            toRet ~= ExpressionArg (TupleArgs!ExpressionArg (subExprs));
+          }
+          break;
         case openingSquareBracket:
           // Array syntax.
-          // TODO: Allow nesting.
-          tokens.popFront ();
-          auto noClosingBracketErr = MaybeExpressionArgs (UserError (
-            `No matching ']' for '['`
-          ));
-          if (tokens.empty) return noClosingBracketErr;
-          ExpressionArg [][] arrayContents;
-          if (tokens.front.type != closingBracket) {
-            parseArrayElement:
-              auto subArgs = toExpressionArgs (tokens, scope_);
-              if (subArgs._is!UserError) {
-                return subArgs;
-              }
-              auto subExprArgs = subArgs.get! (ExpressionArg []);
-              if (tokens.empty) return noClosingBracketErr;
-              arrayContents ~= subExprArgs;
-              if (tokens.front.type == comma) {
-                tokens.popFront ();
-                goto parseArrayElement;
-              }
-            if (tokens.front.type != closingSquareBracket) {
-              return noClosingBracketErr;
-            }
-            // ']' is popped automatically.
-          }
-          toRet ~= ExpressionArg (ArrayArgs!ExpressionArg (arrayContents));
+          toRet ~= ExpressionArg (ArrayArgs!ExpressionArg (nested (
+            tokens, scope_, closingSquareBracket, comma
+          )));
           break;
         case verticalLine:
           tokens.popFront ();
@@ -231,12 +261,6 @@ MaybeExpressionArgs toExpressionArgs (
           }
           auto eA = ExpressionArg (genSumType);
           return MaybeExpressionArgs ([eA]);
-          /+
-          //toRet = typeof (toRet).init;
-
-
-          break;
-          +/
         default:
           return MaybeExpressionArgs (toRet []);
       }

@@ -2,7 +2,7 @@ import mir.algebraic;
 import std.conv : text, to;
 import std.exception : enforce;
 import std.typecons : Tuple, tuple;
-import parser : Expression, ExpressionArg, SumTypeArgs, ArrayArgs;
+import parser : Expression, ExpressionArg, SumTypeArgs, ArrayArgs, TupleArgs;
 
 /// An error in the code that the compiler/interpreter should show.
 struct UserError {
@@ -132,7 +132,7 @@ class ArrayTypeInfo : ParametrizedTypeInfo {
     this.elementSize = globalTypeInfo [elementType].size;
   }
   override string toString () {
-    return globalTypeInfo [args [0].value.get!TypeId].toString () ~ ` []`;
+    return args [0].value.get!TypeId.toString () ~ ` []`;
   }
 }
 
@@ -156,20 +156,19 @@ class StructTypeInfo : ParametrizedTypeInfo {
 }
 
 TypeInfo_ [] globalTypeInfo;
+string toString (TypeId type) {
+  return globalTypeInfo [type].toString ();
+}
 
 /// As of now just handles type equality by id.
 bool isSubTypeOf (TypeId type, TypeId parent) {
   if (type == parent) {
     return true;
   }
-  // TODO: Implicit conversions here.
-  // Such as Type -> SumType including it
-  // Ix to Iy with y > x
-  // etc
-  return false;
+  return !type.visitTypeConvs.find (parent).empty;
 }
 
-RTValue tryImplicitConversion (ref RTValue val, TypeId objective) {
+RTValue tryImplicitConversion (in RTValue val, TypeId objective) {
   if (val.type.isSubTypeOf (objective)) {
     return val;
   } else {
@@ -447,11 +446,12 @@ RTValue createSumType (
   , ref ValueScope scope_
 ) {
   // First arg is the added type, second either a normal type or a sumtype.
-  debug writeln (`Args for sumtype: `, args);
+  // debug writeln (`Args for sumtype: `, args);
   auto subVs = subValues (args, ruleTree, scope_).array;
-  debug writeln (`Types in sumtype `, subVs.map!(s => s.value.get!TypeId));
+  // debug writeln (`Types in sumtype `, subVs.map!(s => s.value.get!TypeId));
   assert (!subVs.empty);
   auto toRet = sumTypeOf (subVs);
+  // Add constructors for each subtype.
   foreach (const subV; subVs) {
       (const RTValue subV) {
       ruleTree.addRule (Rule (
@@ -461,7 +461,7 @@ RTValue createSumType (
           in RTValue [] rArgs
           , ref RuleTree ruleTree
         ) {
-          debug writeln (`Instanced `, globalTypeInfo [toRet].toString, ` with `, subV.value.get!TypeId);
+          debug writeln (`Instanced `, toRet.toString, ` with `, subV.value.get!TypeId);
           assert (rArgs.length == 2);
           return RTValueOrErr (RTValue (subV.value.get!TypeId, rArgs [1].value));
         }
@@ -470,6 +470,15 @@ RTValue createSumType (
   }
   return typeToRTValue (toRet);
 }
+
+RTValue createTuple (
+  const ExpressionArg [][] args
+  , ref RuleTree ruleTree
+  , ref ValueScope scope_
+) {
+  assert (0, `TODO: createTuple`);
+}
+
 /// Finds appropriate rules to match the expression and returns the result
 /// of applying those rules to the match.
 /// If the best match doesn't comprise the full expression, it's result is given
@@ -524,6 +533,8 @@ RTValueOrErr executeFromExpression (
         => RTValueOrSymbol (subValue (subExpression, ruleTree, scope_))
       , (const SumTypeArgs!ExpressionArg sumTypeArgs) 
         => RTValueOrSymbol (createSumType (sumTypeArgs.args, ruleTree, scope_))
+      , (const TupleArgs!ExpressionArg tupleArgs)
+        => RTValueOrSymbol (createTuple (tupleArgs.args, ruleTree, scope_))
     )
   ).array;
   if (args.length == 1 && args [0]._is!RTValue) {
@@ -550,6 +561,7 @@ RTValueOrErr executeFromExpressions (
   , ref RuleTree ruleTree
   , ref ValueScope scope_
 ) {
+  debug writeln (`Executing expressions `, expressions, ` with lastResult `, lastResult);
   /+
   if (expressions.length == 0) {
     assert (lastResult.length == 1);
@@ -657,7 +669,10 @@ struct Rule {
   TypeOrSymbol [] args;
   PatternTree patternTree;
   /// Version for just matching by type.
-  this (TypeOrSymbol [] args, ApplyFun apply) {
+  this (
+    TypeOrSymbol [] args
+    , ApplyFun apply
+  ) {
     assert (args.length > 0, `Rule with no args`);
     this.args = args;
     this.patternTree = PatternTree (OrderedValuedParams ([], apply));
