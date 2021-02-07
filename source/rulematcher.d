@@ -122,7 +122,7 @@ struct RuleMatcher {
         possibleMatches [ruleP] = true;
       }
     }) (inputs [0], 0);
-    debug writeln (`Possible matches is `, possibleMatches);
+    // debug writeln (`Possible matches is `, possibleMatches);
 
     foreach (i, ruleVal; inputs [1..$]) {
       if (setsForPositions.length == i) {

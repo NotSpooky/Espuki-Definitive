@@ -222,6 +222,7 @@ alias Var = Variant! (
   , TypeId
   , NamedType
   , NamedType []
+  , RTValue [] // For tuples.
   , This [] // For arrays and structs.
   , typeof (null)
   , Expressions /* is Expression [] * */
@@ -372,34 +373,34 @@ RTValue lastMatchResult (
 
 RTValue subValue (
   const ExpressionArg [] args
-  , ref RuleMatcher ruleTree
+  , ref RuleMatcher ruleMatcher
   , ref ValueScope scope_
 ) {
   return executeFromExpression (
     Expression (args, Nullable!string (null))
     , [] // Last result isn't sent to subexpressions.
-    , ruleTree
-    , scope_
-  );
-}
-
-auto subValues (
-  const ExpressionArg [][] args
-  , ref RuleMatcher ruleTree
-  , ref ValueScope scope_
-) {
-  return args.map! (eA => subValue (eA, ruleTree, scope_));
-}
-
-RTValue createArray (
-  const ExpressionArg [][] args
-  , ref RuleMatcher ruleTree
-  , ref ValueScope scope_
-) {
-  if (args.empty) {
-    return RTValue (EmptyArray, Var (null));
+      , ruleMatcher
+      , scope_
+    );
   }
-  auto subVs = subValues (args, ruleTree, scope_);
+
+  auto subValues (
+    const ExpressionArg [][] args
+    , ref RuleMatcher ruleMatcher
+  , ref ValueScope scope_
+) {
+    return args.map! (eA => subValue (eA, ruleMatcher, scope_));
+  }
+
+  RTValue createArray (
+    const ExpressionArg [][] args
+    , ref RuleMatcher ruleMatcher
+    , ref ValueScope scope_
+  ) {
+    if (args.empty) {
+      return RTValue (EmptyArray, Var (null));
+    }
+    auto subVs = subValues (args, ruleMatcher, scope_);
   const elType = subVs.front.type;
   auto retType = arrayOf (elType);
   Var [] afterConversionArray = subVs
@@ -408,66 +409,26 @@ RTValue createArray (
   return RTValue (retType, Var (afterConversionArray));
 }
 
-void addSumTypeMethods (
-  ref RuleMatcher ruleMatcher
-  , RTValue sumTypeType
-  , TypeId [] sumTypeTypes // Member types.
-) {
-  debug writeln (`TODO: Add sumtype methods`);
-  // TODO: Consider scope.
-  ruleMatcher.addRule (
-    new Rule (
-      [
-        RuleParam (sumTypeType)
-        , RuleParam (ArrayOfExpressions)
-      ] // Instance of each of sumTypeTypes
-      , (
-        in RTValue [] args
-        , ref RuleMatcher ruleMatcherInternal
-      ) {
-        assert (args.length == 2);
-        /+debug writeln (
-          "Apply called, will now execute with:\n\t"
-          , args [0].value, ` in `, args [1].value
-        );+/
-        import parser : Expression;
-        auto result = executeFromExpressions (
-          args [1].value.get! (Expressions).expressions
-          , [args [0]]
-          , ruleMatcherInternal
-          , globalScope
-        );
-        if (result._is!UserError) {
-          throw new Exception (result.get!UserError.message);
-        }
-        return result.get!RTValue;
-      }
-    )
-  );
-}
-
 RTValue createSumType (
   const ExpressionArg [][] args
-  , ref RuleMatcher ruleTree
+  , ref RuleMatcher ruleMatcher
   , ref ValueScope scope_
 ) {
   // First arg is the added type, second either a normal type or a sumtype.
   // debug writeln (`Args for sumtype: `, args);
-  auto subVs = subValues (args, ruleTree, scope_).array;
+  auto subVs = subValues (args, ruleMatcher, scope_).array;
   // debug writeln (`Types in sumtype `, subVs.map!(s => s.value.get!TypeId));
   assert (!subVs.empty);
   auto toRet = sumTypeOf (subVs);
   // Add constructors for each subtype.
   foreach (const subV; subVs) {
-      debug writeln (`Adding sumType ctor `, toRet.toString (), ` `, subV.value.get!TypeId.toString ());
       (const RTValue subV) {
-      ruleTree.addRule (new Rule (
+      ruleMatcher.addRule (new Rule (
         [RuleParam (RTValue (Kind, Var (toRet))), RuleParam (subV.value.get!TypeId)]
         , (
           in RTValue [] rArgs
-          , ref RuleMatcher ruleTree
+          , ref RuleMatcher ruleMatcher
         ) {
-          debug writeln (`Instanced `, toRet.toString, ` with `, subV.value.get!TypeId);
           assert (rArgs.length == 2);
           return RTValue (toRet, rArgs [1].value);
         }
@@ -479,9 +440,10 @@ RTValue createSumType (
 
 RTValue createTuple (
   const ExpressionArg [][] args
-  , ref RuleMatcher ruleTree
+  , ref RuleMatcher ruleMatcher
   , ref ValueScope scope_
 ) {
+  return RTValue (TupleT, Var (subValues (args, ruleMatcher, scope_).array));
   assert (0, `TODO: createTuple`);
 }
 
@@ -493,7 +455,7 @@ RTValue createTuple (
 RTValue executeFromExpression (
   in Expression expression
   , in RTValue [] lastResult
-  , ref RuleMatcher ruleTree
+  , ref RuleMatcher ruleMatcher
   , ref ValueScope scope_
 ) {
   assert (
@@ -509,7 +471,7 @@ RTValue executeFromExpression (
     a.visit! (
       (const Expression * subExpr) {
         auto subExprRet = executeFromExpression (
-          *subExpr, lastResult, ruleTree, scope_
+          *subExpr, lastResult, ruleMatcher, scope_
         );
         return RTValueOrSymbol (subExprRet);
       }
@@ -527,15 +489,15 @@ RTValue executeFromExpression (
       , (const ArrayArgs!ExpressionArg arrayElementExpressions)
         => RTValueOrSymbol (createArray (
           arrayElementExpressions.args
-          , ruleTree
+          , ruleMatcher
           , scope_
         ))
       , (const ExpressionArg [] subExpression)
-        => RTValueOrSymbol (subValue (subExpression, ruleTree, scope_))
+        => RTValueOrSymbol (subValue (subExpression, ruleMatcher, scope_))
       , (const SumTypeArgs!ExpressionArg sumTypeArgs) 
-        => RTValueOrSymbol (createSumType (sumTypeArgs.args, ruleTree, scope_))
+        => RTValueOrSymbol (createSumType (sumTypeArgs.args, ruleMatcher, scope_))
       , (const TupleArgs!ExpressionArg tupleArgs)
-        => RTValueOrSymbol (createTuple (tupleArgs.args, ruleTree, scope_))
+        => RTValueOrSymbol (createTuple (tupleArgs.args, ruleMatcher, scope_))
     )
   ).array;
   if (args.length == 1 && args [0]._is!RTValue) {
@@ -553,7 +515,7 @@ RTValue executeFromExpression (
   // debug writeln (`Args: `, args);
   // debug writeln (`Params: `, params);
 
-  return lastMatchResult (ruleTree, args);
+  return lastMatchResult (ruleMatcher, args);
 }
 
 /// Chains multiple expressions together and returns the last one's return value
@@ -561,7 +523,7 @@ RTValue executeFromExpression (
 RTValueOrErr executeFromExpressions (
   in Expression [] expressions
   , RTValue [] lastResult
-  , ref RuleMatcher ruleTree
+  , ref RuleMatcher ruleMatcher
   , ref ValueScope scope_
 ) {
   // debug writeln (`Executing expressions `, expressions, ` with lastResult `, lastResult);
@@ -572,7 +534,7 @@ RTValueOrErr executeFromExpressions (
   }+/
   foreach (expression; expressions) {
     auto result = executeFromExpression (
-      expression, lastResult, ruleTree, scope_
+      expression, lastResult, ruleMatcher, scope_
     );
       // debug writeln (`res: `, result.get!RTValue.value.visit! (a => a.to!string));
     lastResult = [result];
@@ -585,10 +547,10 @@ import std.range;
 RTValueOrErr executeFromLines (R)(R lines) if (is (ElementType!R == string)) {
   import lexer : asExpressions;
   import intrinsics : globalScope, globalRules;
-  auto ruleTree = RuleMatcher (globalRules.rules);
+  auto ruleMatcher = RuleMatcher (globalRules.rules);
   return asExpressions (lines, globalScope).visit! (
     (Expression [] expressions) { 
-      return executeFromExpressions (expressions, [], ruleTree, globalScope);
+      return executeFromExpressions (expressions, [], ruleMatcher, globalScope);
     }
     , (UserError ue) {
       stderr.writeln (`Error: `, ue.message);

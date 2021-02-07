@@ -15,6 +15,7 @@ TypeId I32;
 TypeId I64;
 TypeId F32;
 TypeId F64;
+TypeId TupleT;
 TypeId NamedTypeT;
 TypeId ExpressionT;
 ParametrizedKind Array;
@@ -83,6 +84,7 @@ shared static this () {
   I64 = addPrimitive (`I64`);
   F32 = addPrimitive (`F32`);
   F64 = addPrimitive (`F64`);
+  TupleT = addPrimitive (`Tuple`);
   NamedTypeT = addPrimitive (`NamedType`);
   ExpressionT = addPrimitive (`Expression`);
   EmptyArray = addPrimitive (`EmptyArray`);
@@ -156,6 +158,49 @@ shared static this () {
         return RTValue (I32, Var (555));
       }
     )
+    , Rule (
+      [
+        RuleParam (ArrayOfSymbolOrNamedType)
+        , RuleParam (ArrayOfExpressions)
+      ] // Instance of each of sumTypeTypes
+      , (
+        in RTValue [] args
+        , ref RuleMatcher ruleMatcherInternal
+      ) {
+        assert (args.length == 2);
+        /+debug writeln (
+          "Apply called, will now execute with:\n\t"
+          , args [0].value, ` in `, args [1].value
+        );+/
+        import parser : Expression;
+        auto result = executeFromExpressions (
+          args [1].value.get! (Expressions).expressions
+          , [args [0]]
+          , ruleMatcherInternal
+          , globalScope
+        );
+        if (result._is!UserError) {
+          throw new Exception (result.get!UserError.message);
+        }
+        return result.get!RTValue;
+      }
+    )
+    , Rule (
+      [
+        RuleParam (TupleT)
+        , RuleParam (`at`.asSymbol)
+        , RuleParam (I32)
+      ]
+      , (
+        in RTValue [] args
+        , ref RuleMatcher ruleMatcher
+      ) {
+        assert (args.length == 3);
+        // Cannot return the indexed directly, as it's const.
+        auto source = args [0].value.get!(RTValue [])[args [2].value.get!(int)];
+        return RTValue (source.type, source.value);
+      }
+    )
   ]);
 }
 
@@ -177,6 +222,8 @@ template TypeMapping (DType) {
     alias TypeMapping = F32;
   } else static if (is (DType == AsValueListRet)) {
     alias TypeMapping = Function;
+  } else static if (is (DType == RTValue [])) {
+    alias TypeMapping = TupleT;
   }
 }
 
