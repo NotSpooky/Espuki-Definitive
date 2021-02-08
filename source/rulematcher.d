@@ -21,10 +21,14 @@ string toString (RuleParam rp) {
 
 alias SetOfRuleP = bool [Rule *];
 
-auto ruleFrom (string r, RuleParam [] vals) {
+auto ruleFrom (RuleParam [] vals) {
   return Rule (
     vals
-    , (in RTValue [] inputs, ref RuleMatcher ruleMatcher) {
+    , (
+      in RTValue [] inputs
+      , ref RuleMatcher ruleMatcher
+      , ref ValueScope valueScope
+    ) {
       return RTValue (I32, Var (999));
     }
   );
@@ -36,18 +40,18 @@ auto toRuleValue (RuleParam ruleParam) {
 unittest {
   auto rules = RuleMatcher ([]);
   auto rule1Params = [RuleParam (I32), RuleParam (I32)];
-  auto example1 = ruleFrom (`first`, rule1Params);
+  auto example1 = ruleFrom (rule1Params);
   rules.addRule (&example1);
   auto args1 = [RTValue (I32, Var (1)), RTValue (I32, Var (2))];
   assert (rules.matchRule (args1) == example1);
   auto rule2Params = rule1Params ~ [RuleParam (String)];
-  auto example2 = ruleFrom (`second`, rule2Params);
+  auto example2 = ruleFrom (rule2Params);
   rules.addRule (&example2);
   auto args2 = args1 ~ RTValue (String, Var (`Olis`));
   assert (rules.matchRule (args2) == example2);
   assert (rules.matchRule (args1) == example1);
   auto rule3Params = [RuleParam (I64), RuleParam (I32)];
-  auto example3 = ruleFrom (`third`, rule3Params);
+  auto example3 = ruleFrom (rule3Params);
   rules.addRule (&example3);
   assert (rules.matchRule (args1) == example1);
   auto args3 = [RTValue (I64, Var (500L)), RTValue (I32, Var (4))];
@@ -104,9 +108,9 @@ struct RuleMatcher {
   }
 
   /// Advances inputs.
-  RTValue matchAndExecuteRule (ref RTValue [] inputs) {
+  RTValue matchAndExecuteRule (ref RTValue [] inputs, ref ValueScope valueScope) {
     auto matched = this.matchRule (inputs);
-    RTValue toRet = matched.applyFun (inputs, this);
+    RTValue toRet = matched.applyFun (inputs, this, valueScope);
     inputs = inputs [matched.params.length .. $];
     return toRet;
   }
@@ -282,205 +286,3 @@ alias implicitDir = match!(
     }
   }
 );
-
-
-/+
-
-
-
-struct PosWithVal {
-  uint pos;
-  RuleValue ruleValue;
-}
-
-struct FuncTree {
-  // Ordered by pos.
-  PosWithVal [] common;
-  FuncTree [] specializations;
-  // Null if just specializations have rules.
-  Nullable!Rule2 rule;
-  FuncTree * possibleParent;
-  invariant {
-    assert (rule._is!Rule2 || !specializations.empty);
-  }
-  bool matches (in RTValue [] values) {
-    if (common.length > 0) {
-      // First check that all positions fit in values
-      if (common [$-1].pos >= values.length) {
-        return false;
-      }
-    }
-    foreach (ref commonVal; common) {
-      auto valueAtC = values [commonVal.pos];
-      if (! commonVal.ruleValue.visit! (
-        (RTValue specificVal) {
-          return valueAtC.type.isSubTypeOf (specificVal.type)
-            && valueAtC.tryImplicitConversion (specificVal.type) == specificVal;
-        }
-        , (TypeId type) {
-          return valueAtC.type.isSubTypeOf (type);
-        }
-      )) {
-        return false;
-      }
-    }
-    return true;
-  }
-
-  auto specializationsThatMatch (in RTValue [] values) {
-    return specializations
-      .filter! (s => s.matches (values))
-      .map! (s => s.rule);
-  }
-
-  auto bestMatchingRule (in RTValue [] values) {
-    if (this.matches (values)) {
-      auto spec = specializationsThatMatch (values);
-      if (spec.empty) {
-        return this.rule;
-      } else {
-        auto matched = spec.front;
-        spec.popFront ();
-        if (spec.empty) {
-          return matched;
-        } else {
-          import std.conv : to;
-          throw new Exception (`Multiple rules match ` ~ values.to!string);
-        }
-      }
-    } else {
-      return Nullable!Rule2 (null);
-    }
-  }
-
-  /// params must be ordered wrt position.
-  auto addRule (PosWithVal [] params) {
-    assert (!params.empty);
-    auto common = this.common; // Don't iterate over the field common.
-
-    alias MaybeRuleVal = Nullable!RuleValue;
-    struct SpecWithDiff {
-      uint pos;
-      MaybeRuleVal common;
-      RuleValue newV;
-    }
-    SpecWithDiff [] newSpecializations;
-
-    struct SubSpecWithDiff {
-      uint pos;
-      RuleValue common;
-      MaybeRuleVal newV;
-    }
-    SubSpecWithDiff [] newSubSpecializations;
-
-    struct Incompatible {
-      uint pos;
-      RuleValue common;
-      RuleValue newV;
-    }
-    Incompatible [] incompatibles;
-
-    // First fill the newSpecializations, newSubSpecializations, incompatibles
-    // arrays.
-    while (true) {
-      // If any of the two is empty, should stop iterating.
-      if (params.empty) {
-        if (!common.empty) {
-          // More in already existing, add them as subspecializations.
-          newSubSpecializations ~= common.map! (c => SubSpecWithDiff (
-            c.pos, c.ruleValue, MaybeRuleVal (null)
-          )).array;
-        }
-        break;
-      } else if (common.empty) {
-        // More in new rule, add them as specializations.
-        newSpecializations ~= params.map! (p => SpecWithDiff (
-          p.pos, MaybeRuleVal (null), p.ruleValue
-        )).array;
-        break;
-      }
-      auto paramV = params.front;
-      auto commonV = common.front;
-      auto paramPos = paramV.pos;
-      auto commonPos = commonV.pos;
-       if (paramPos < commonPos) {
-        // There's a param in the new rule which isn't on existing, so it's an
-        // specialization.
-        newSpecializations ~= SpecWithDiff (
-          paramPos, MaybeRuleVal (null), paramV.ruleValue
-        );
-        params.popFront ();
-      } else if (paramPos > commonPos) {
-        // There's a param in existing which isn't on the new rule, so it's a
-        // subspecialization.
-        newSubSpecializations ~= SubSpecWithDiff (
-          commonPos, commonV.ruleValue, MaybeRuleVal (null)
-        );
-      } else {
-        // paramV pos == commonV pos
-        auto commonRV = commonV.ruleValue;
-        auto paramRV = paramV.ruleValue;
-        with (ImplicitConversionDirection) {
-          final switch (implicitDir (commonRV, paramRV)){
-            case noConversionPossible:
-              incompatibles ~= Incompatible (commonPos, commonRV, paramRV);
-              break;
-            case firstToSecond:
-              newSpecializations ~= SpecWithDiff (
-                commonPos, MaybeRuleVal (commonRV), paramRV
-              );
-              break;
-            case secondToFirst:
-              newSubSpecializations ~= SubSpecWithDiff (
-                commonPos, commonRV, MaybeRuleVal (paramRV)
-              );
-              break;
-            case twoAreTheSame:
-              // No need to add to any array.
-              break;
-          }
-        }
-        params.popFront ();
-        common.popFront ();
-      } 
-    }
-    debug writeln (`Specializations `, newSpecializations);
-    debug writeln (`SubSpecializations `, newSubSpecializations);
-    debug writeln (`Incompats `, incompatibles);
-    import std.exception;
-    enforce (! (
-      incompatibles.empty
-      && newSpecializations.empty
-      && newSubSpecializations.empty
-    ), `Tried adding rule with same args as existing one`);
-    if (
-      !incompatibles.empty
-      || ((!newSpecializations.empty) && (!newSubSpecializations.empty))
-    ) {
-      // If there are incompatibilities or both specs and subspecs, the branch
-      // should split.
-      assert (0, `TODO: Split tree`);
-    } else if (!newSubSpecializations.empty) {
-      assert (0, `TODO: Add subspecialization`);
-    } else {
-      assert (0, `TODO: Add specialization`);
-    }
-  }
-}
-
-unittest {
-  import execute;
-  import intrinsics;
-  auto exampleV = RTValue (I32, Var (5));
-  implicitDir (
-    RuleValue (exampleV), RuleValue (exampleV)
-  ).writeln;
-  FuncTree (
-    [
-      PosWithVal (0, RuleValue (exampleV))
-    ]
-    , [] // specs 
-    , Nullable!Rule2 (Rule2 ())
-    , null
-  ).matches ([exampleV]).writeln ();
-}+/

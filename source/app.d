@@ -17,6 +17,9 @@ void main (string [] args) {
       writeln (val);
       // TODO: Exit with code.
     }
+    , (typeof (null)) {
+      writeln (`No result`);
+    }
     , (UserError ue) {
       stderr.writeln (`Error `, ue.message);
       // TODO: Exit with code.

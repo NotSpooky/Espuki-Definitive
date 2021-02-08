@@ -156,6 +156,7 @@ LexRet asExpressions (R)(R inputLines, in ValueScope scope_) {
                 toRet ~= Expression (
                   exprArgs.get! (ExpressionArg [])
                   , Nullable!string (null)
+                  , false
                 );
               } else {
                 assert (exprArgs._is!UserError);

@@ -37,10 +37,11 @@ struct Expression {
   /// An expression gets a name when assigned to a variable.
   /// Note that the implicit underscore isn't handled with this variable.
   Nullable!string name;
+  /// Results are saved to first arg if this is true.
+  bool passThisResult = true;
   /// Expressions with underscores or without a previous value passed
   /// don't add the previous value as implicit first argument.
   bool usesUnderscore = false;
-
 
   nothrow @safe size_t toHash () const {
     return toHash (0);
@@ -96,15 +97,9 @@ MaybeParams ruleParams (Token [] tokens, ValueScope scope_) {
             text (`Expected identifiers after `, current.strVal)
           ));
         }
-        auto type = current.strVal in scope_.values;
-        if (!type) {
-          return MaybeParams (UserError (
-            text (`Couldn't find type `, current.strVal)
-          ));
-        }
+        auto type = scope_.find (current.strVal);
         assert (type.type == Kind, `Types should be of type Kind`);
-        auto typeVal = (* type).value.get!TypeId;
-        rulePsToRet ~= TypeOrSymbol (typeVal);
+        rulePsToRet ~= TypeOrSymbol (type.value.get!TypeId);
         i ++;
         auto nextT = tokens [i];
         assert (nextT.type == identifier, `TODO: Type constructors`);

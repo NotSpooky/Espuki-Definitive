@@ -183,6 +183,7 @@ RTValue tryImplicitConversion (in RTValue val, TypeId objective) {
 alias ApplyFun = RTValue delegate (
   in RTValue [] inputs
   , ref RuleMatcher ruleMatcher
+  , ref ValueScope valueScope
 );
 /// mir.algebraic.Variant seems to have trouble with ApplyFun so we wrap it.
 /+struct ApplyFunContainer {
@@ -221,11 +222,11 @@ alias Var = Variant! (
   , int
   , TypeId
   , NamedType
-  , NamedType []
-  , RTValue [] // For tuples.
-  , This [] // For arrays and structs.
+  , Rule *     // For RuleT
+  , RTValue [] // For TupleT.
+  , This []    // For arrays and structs.
   , typeof (null)
-  , Expressions /* is Expression [] * */
+  , Expressions /* Expression [] * */
   , StructType
 );
 
@@ -261,7 +262,8 @@ struct RTValue {
 alias TypeOrErr = Variant! (TypeId, UserError);
 
 struct ValueScope {
-  RTValue [string] values;
+  Nullable!(ValueScope *) parent;
+  private RTValue [string] values;
   TypeOrErr addType (string identifier, size_t size) {
     auto toRet = TypeOrErr (UserError (
       `Type ` ~ identifier ~ ` already exists in the scope`)
@@ -276,6 +278,34 @@ struct ValueScope {
       } ()
     );
     return toRet;
+  }
+
+  Nullable!RTValue find (string name) {
+    auto pNullable = nullable (&this);
+    while (!pNullable.isNull) {
+      auto p = pNullable.get ();
+      auto nInVals = name in p.values;
+      if (nInVals) {
+        return nullable (*nInVals);
+      }
+      pNullable = p.parent;
+    }
+    return Nullable!RTValue (null);
+  }
+
+  auto withScope (alias F)(RTValue [string] subScopeVals) {
+    foreach (name; subScopeVals.keys) {
+      auto pNullable = nullable (&this);
+      while (!pNullable.isNull) {
+        auto p = pNullable.get ();
+        enforce (
+          !(name in p.values)
+          , `Adding already existing name '` ~ name ~ `' to scope`
+        );
+        pNullable = p.parent;
+      }
+    }
+    return F (ValueScope (nullable (&this), subScopeVals));
   }
 }
 
@@ -300,7 +330,7 @@ auto apply (RTFunction fun, RTValue [] args) {
   
 }
 
-alias RTValueOrErr = Variant! (RTValue, UserError);
+alias RTValueNullOrErr = Variant! (RTValue, typeof (null), UserError);
 
 alias TypeOrSymbol = Variant! (TypeId, string);
 // Could simply add the strings as RTValues of symbols instead.
@@ -318,57 +348,22 @@ struct MatchWithPos {
 RTValue lastMatchResult (
   ref RuleMatcher ruleMatcher
   , in RTValueOrSymbol [] args
+  , ref ValueScope valueScope
 ) {
   auto asRTVals = args.map! (arg => arg.visit! (
     (RTValue val) => val
     , (string symbol) => RTValue (Symbol, Var (symbol))
   )).array;
+  if (asRTVals.length == 1) {
+    return asRTVals [0];
+  }
   RTValue [] lastResult;
   while (!asRTVals.empty) {
-    debug writeln (`Values left `, asRTVals);
-    lastResult = [ruleMatcher.matchAndExecuteRule (asRTVals)];
-    debug writeln (`Last result is `, lastResult [0]);
+    lastResult = [ruleMatcher.matchAndExecuteRule (asRTVals, valueScope)];
+    // debug writeln (`Last result is `, lastResult [0]);
   }
   assert (lastResult.length > 0);
   return lastResult [0];
-  /+
-  return ruleTree.matchRule (params).visit! (
-    // No rule matches.
-    (typeof (null)) => RTValueOrErr (
-      UserError (`Couldn't match rule for `, args)
-    ), (MatchWithPos mwp) {
-      // There's a match and it ends at mwp.position.
-      // Apply the rule corresponding to the found match.
-      auto matchResultVal = mwp.rule.apply (
-        args
-          .filter! (a => a._is!RTValue)
-          .map! (a => a.get!RTValue)
-          .array
-        , ruleTree
-      );
-      //auto matchResultVal = RTValueOrErr (owo);
-      return matchResultVal.visit! (
-        // If errored, just pass it.
-        (UserError ue) => matchResultVal
-        , (RTValue val) {
-          // Else, this value becomes the first argument for the next match.
-          const cutPoint = mwp.position;
-          if (cutPoint == args.length) {
-            // Finished matching all the args.
-            return matchResultVal;
-          } else {
-            // Still more to match, we add the current result as first arg/param
-            // Could be made faster if we avoid concatenation.
-            return lastMatchResult (
-              ruleTree
-              , [TypeOrSymbol (val.type)] ~ params [cutPoint .. $]
-              , [RTValueOrSymbol (val)] ~ args [cutPoint .. $]
-            );
-          }
-        }
-      );
-    }
-  );+/
 }
 
 RTValue subValue (
@@ -428,6 +423,7 @@ RTValue createSumType (
         , (
           in RTValue [] rArgs
           , ref RuleMatcher ruleMatcher
+          , ref ValueScope valueScope
         ) {
           assert (rArgs.length == 2);
           return RTValue (toRet, rArgs [1].value);
@@ -480,11 +476,12 @@ RTValue executeFromExpression (
       , (string a) {
         // If the string is an identifier in the scope, use that value,
         // else treat is as a symbol.
-        auto inScope = a in scope_.values;
-        if (inScope) {
-          return RTValueOrSymbol (*inScope);
+        auto inScope = scope_.find (a);
+        if (inScope.isNull) {
+          return RTValueOrSymbol (a);
+        } else {
+          return RTValueOrSymbol (inScope.get ());
         }
-        return RTValueOrSymbol (a);
       }
       , (const ArrayArgs!ExpressionArg arrayElementExpressions)
         => RTValueOrSymbol (createArray (
@@ -505,56 +502,48 @@ RTValue executeFromExpression (
   }
   debug writeln (`Got as last result `, lastResult.map! (a => a.to!string));
   debug writeln (`Got as args `, args.map! (a => a.visit! (b => b.to!string)));
-  /+
-  auto params = args.map! (a => a.visit! (
-    (RTValue val) => val.type
-    , (string symbol) => symbol
-  )).array;
-  +/
 
-  // debug writeln (`Args: `, args);
-  // debug writeln (`Params: `, params);
-
-  return lastMatchResult (ruleMatcher, args);
+  return lastMatchResult (ruleMatcher, args, scope_);
 }
 
 /// Chains multiple expressions together and returns the last one's return value
 /// Can return UserError on error.
-RTValueOrErr executeFromExpressions (
+Nullable!RTValue executeFromExpressions (
   in Expression [] expressions
   , RTValue [] lastResult
   , ref RuleMatcher ruleMatcher
   , ref ValueScope scope_
 ) {
-  // debug writeln (`Executing expressions `, expressions, ` with lastResult `, lastResult);
-  /+
-  if (expressions.length == 0) {
-    assert (lastResult.length == 1);
-    return RTValueOrErr (lastResult [0]);
-  }+/
   foreach (expression; expressions) {
     auto result = executeFromExpression (
       expression, lastResult, ruleMatcher, scope_
     );
+    if (expression.passThisResult) {
       // debug writeln (`res: `, result.get!RTValue.value.visit! (a => a.to!string));
-    lastResult = [result];
+      lastResult = [result];
+    }
   }
-  return RTValueOrErr (lastResult [0]);
+  if (lastResult.length > 0) {
+    return (Nullable!RTValue (lastResult [0]));
+  } else {
+    return Nullable!RTValue (null);
+  }
 }
 
 debug import std.stdio;
 import std.range;
-RTValueOrErr executeFromLines (R)(R lines) if (is (ElementType!R == string)) {
+RTValueNullOrErr executeFromLines (R)(R lines) if (is (ElementType!R == string)) {
   import lexer : asExpressions;
   import intrinsics : globalScope, globalRules;
   auto ruleMatcher = RuleMatcher (globalRules.rules);
   return asExpressions (lines, globalScope).visit! (
     (Expression [] expressions) { 
-      return executeFromExpressions (expressions, [], ruleMatcher, globalScope);
+      return executeFromExpressions (expressions, [], ruleMatcher, globalScope)
+        .visit! (res => RTValueNullOrErr (res));
     }
     , (UserError ue) {
       stderr.writeln (`Error: `, ue.message);
-      return RTValueOrErr (ue);
+      return RTValueNullOrErr (ue);
     }
   );
 }
