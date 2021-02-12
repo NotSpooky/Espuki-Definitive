@@ -392,10 +392,10 @@ RTValue subValue (
     , ref RuleMatcher ruleMatcher
     , ref ValueScope scope_
   ) {
-    if (args.empty) {
-      return RTValue (EmptyArray, Var (null));
-    }
-    auto subVs = subValues (args, ruleMatcher, scope_);
+  if (args.empty) {
+    return RTValue (EmptyArray, Var (null));
+  }
+  auto subVs = subValues (args, ruleMatcher, scope_);
   const elType = subVs.front.type;
   auto retType = arrayOf (elType);
   Var [] afterConversionArray = subVs
@@ -500,8 +500,8 @@ RTValue executeFromExpression (
   if (args.length == 1 && args [0]._is!RTValue) {
     return args [0].get!RTValue;
   }
-  debug writeln (`Got as last result `, lastResult.map! (a => a.to!string));
-  debug writeln (`Got as args `, args.map! (a => a.visit! (b => b.to!string)));
+  debug (2) writeln (`Got as last result `, lastResult.map! (a => a.to!string));
+  debug (2) writeln (`Got as args `, args.map! (a => a.visit! (b => b.to!string)));
 
   return lastMatchResult (ruleMatcher, args, scope_);
 }

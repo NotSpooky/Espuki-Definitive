@@ -2,16 +2,17 @@ module app;
 
 import std.stdio;
 import execute;
+import mir.algebraic;
+import std.algorithm;
 
 void main (string [] args) {
   if (args.length != 2) {
     stderr.writeln (`Usage: espuki file.es`);
     return;
   }
-  import std.algorithm;
   import std.conv : to;
-  import mir.algebraic : visit;
-  auto result = executeFromLines (File (args [1]).byLineCopy ());
+  import test : executeFromFile;
+  auto result = executeFromFile (args [1]);
   result.visit! (
     (RTValue val) {
       writeln (val);
@@ -25,5 +26,5 @@ void main (string [] args) {
       // TODO: Exit with code.
     }
   );
-
 }
+

@@ -38,10 +38,10 @@ auto toRuleValue (RuleParam ruleParam) {
   return ruleParam.visit! (a => RuleValue (a));
 }
 unittest {
-  auto rules = RuleMatcher ([]);
   auto rule1Params = [RuleParam (I32), RuleParam (I32)];
   auto example1 = ruleFrom (rule1Params);
-  rules.addRule (&example1);
+  auto rs = [example1];
+  auto rules = RuleMatcher (rs);
   auto args1 = [RTValue (I32, Var (1)), RTValue (I32, Var (2))];
   assert (rules.matchRule (args1) == example1);
   auto rule2Params = rule1Params ~ [RuleParam (String)];
@@ -76,6 +76,7 @@ struct RuleMatcher {
     foreach (i, ruleVal; toAdd.params.map!toRuleValue.enumerate) {
       setsForPositions [i][ruleVal][toAdd] = true;
     }
+    // Add end of rule.
     setsForPositions [rValLen][eor][toAdd] = true;
   }
 
@@ -133,7 +134,7 @@ struct RuleMatcher {
         break;
       }
       // debug writeln (`Matching `, ruleVal);
-      //debug writeln (`POS `, i);
+      // debug writeln (`POS `, i);
       // For next iteration.
       SetOfRuleP savedPossibleMatches;
       rulesMatching! ((setOfRules) {
@@ -197,8 +198,7 @@ struct RuleMatcher {
         // Another option is to have specialization info on the same rules.
         foreach (best, alt; bestMatch.params.lockstep (alternative.params)) {
           auto dir = implicitDir (best, alt);
-          debug writeln (`Comparing `, toString (best), ` with `, toString (alt));
-          debug writeln (dir);
+          //debug writeln (`Comparing `, toString (best), ` with `, toString (alt));
           with (ImplicitConversionDirection) {
             if (
               dir == noConversionPossible
@@ -211,7 +211,7 @@ struct RuleMatcher {
                 )
             ) {
               throw new Exception (text (
-                `Multuple rules match `, inputs, ":\n", bestMatch, '\n', alternative
+                `Multiple rules match `, inputs, ":\n", bestMatch, '\n', alternative
               ));
             } else if (dir == firstToSecond) {
               specDir = bestMatchIsSpec;
@@ -220,7 +220,10 @@ struct RuleMatcher {
             }
           }
         }
-        assert (specDir != unknown);
+        import std.exception : enforce;
+        enforce (specDir != unknown, text (
+          `Multiple rules with same params match `, inputs, `, params are `, bestMatch.params
+        ));
         if (specDir == alternativeIsSpec) {
           bestMatch = alternative;
         }
