@@ -18,9 +18,9 @@ jobs:
         with:
           compiler: ${{ matrix.dc }}
       - name: Generate executable
-          run: dub build --build=release
-          env:
-            CI: true
+        run: dub build --build=release
+        env:
+          CI: true
       - name: Upload the artifacts
         uses: skx/github-action-publish-binaries@master
         env:
