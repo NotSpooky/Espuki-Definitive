@@ -521,6 +521,8 @@ Nullable!RTValue executeFromExpressions (
     if (expression.passThisResult) {
       // debug writeln (`res: `, result.get!RTValue.value.visit! (a => a.to!string));
       lastResult = [result];
+    } else {
+      lastResult = [];
     }
   }
   if (lastResult.length > 0) {
