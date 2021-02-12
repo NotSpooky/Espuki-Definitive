@@ -257,6 +257,10 @@ struct RTValue {
       sink (value.visit! (a => a.to!string ()));
     }
   }
+
+  size_t toHash () {
+    assert (0, `TODO: RTValue hash`);
+  }
 }
 
 alias TypeOrErr = Variant! (TypeId, UserError);
@@ -292,21 +296,21 @@ struct ValueScope {
     }
     return Nullable!RTValue (null);
   }
-
-  auto withScope (alias F)(RTValue [string] subScopeVals) {
-    foreach (name; subScopeVals.keys) {
-      auto pNullable = nullable (&this);
-      while (!pNullable.isNull) {
-        auto p = pNullable.get ();
-        enforce (
-          !(name in p.values)
-          , `Adding already existing name '` ~ name ~ `' to scope`
-        );
-        pNullable = p.parent;
-      }
+}
+// Moved outside ValueScope as LDC doesn't support dual-context yet.
+auto withScope (alias F)(ref ValueScope scope_, RTValue [string] subScopeVals) {
+  foreach (name; subScopeVals.keys) {
+    auto pNullable = nullable (&scope_);
+    while (!pNullable.isNull) {
+      auto p = pNullable.get ();
+      enforce (
+        !(name in p.values)
+        , `Adding already existing name '` ~ name ~ `' to scope`
+      );
+      pNullable = p.parent;
     }
-    return F (ValueScope (nullable (&this), subScopeVals));
   }
+  return F (ValueScope (nullable (&scope_), subScopeVals));
 }
 
 import std.typecons : Tuple;

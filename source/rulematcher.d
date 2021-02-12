@@ -59,6 +59,45 @@ unittest {
 }
 struct EndOfRule {}
 
+alias SetsForPositions = SetOfRuleP [RuleValue] [];
+// Moved here because LDC doesn't support dual contexts yet.
+private void rulesMatchingSet (alias OnSet)(
+  in RTValue val
+  , size_t index
+  , in SetsForPositions setsForPositions
+) const {
+  auto valInSet = RuleValue (val) in setsForPositions [index];
+  if (valInSet) {
+    OnSet (*valInSet);
+  }
+  foreach (generalType; val.type.visitTypeConvs ()) {
+    const convValInSet
+      = RuleValue (val.tryImplicitConversion (generalType))
+        in setsForPositions [index];
+    if (convValInSet) {
+      OnSet (*convValInSet);
+    }
+  }
+  // Also match types.
+  rulesMatching!OnSet (val.type, index, setsForPositions);
+}
+
+// Moved here because LDC doesn't support dual contexts yet.
+private auto rulesMatching (alias OnSet)(
+  in TypeId type
+  , size_t index
+  , in SetsForPositions setsForPositions
+) const {
+  // Note: visitTypeConvs includes itself, so no checking for RuleValue (type)
+  // is needed.
+  foreach (generalType; type.visitTypeConvs ()) {
+    const genValInSet = RuleValue (generalType) in setsForPositions [index];
+    if (genValInSet) {
+      OnSet (*genValInSet);
+    }
+  }
+}
+
 struct RuleMatcher {
   SetOfRuleP [RuleValue] [] setsForPositions;
 
@@ -80,34 +119,6 @@ struct RuleMatcher {
     setsForPositions [rValLen][eor][toAdd] = true;
   }
 
-  private auto rulesMatching (alias OnSet)(in TypeId type, size_t index) const {
-    // Note: visitTypeConvs includes itself, so no checking for RuleValue (type)
-    // is needed.
-    foreach (generalType; type.visitTypeConvs ()) {
-      const genValInSet = RuleValue (generalType) in setsForPositions [index];
-      if (genValInSet) {
-        OnSet (*genValInSet);
-      }
-    }
-  }
-
-  private void rulesMatching (alias OnSet)(in RTValue val, size_t index) const {
-    auto valInSet = RuleValue (val) in setsForPositions [index];
-    if (valInSet) {
-      OnSet (*valInSet);
-    }
-    foreach (generalType; val.type.visitTypeConvs ()) {
-      const convValInSet
-        = RuleValue (val.tryImplicitConversion (generalType))
-          in setsForPositions [index];
-      if (convValInSet) {
-        OnSet (*convValInSet);
-      }
-    }
-    // Also match types.
-    rulesMatching!OnSet (val.type, index);
-  }
-
   /// Advances inputs.
   RTValue matchAndExecuteRule (ref RTValue [] inputs, ref ValueScope valueScope) {
     auto matched = this.matchRule (inputs);
@@ -122,11 +133,11 @@ struct RuleMatcher {
     const (Rule) * [] matches;
     SetOfRuleP possibleMatches;
     // Fill possibleMatches.
-    rulesMatching! ((s) {
+    rulesMatchingSet! ((s) {
       foreach (ruleP; s.keys) {
         possibleMatches [ruleP] = true;
       }
-    }) (inputs [0], 0);
+    }) (inputs [0], 0, this.setsForPositions);
     // debug writeln (`Possible matches is `, possibleMatches);
 
     foreach (i, ruleVal; inputs [1..$]) {
@@ -137,7 +148,7 @@ struct RuleMatcher {
       // debug writeln (`POS `, i);
       // For next iteration.
       SetOfRuleP savedPossibleMatches;
-      rulesMatching! ((setOfRules) {
+      rulesMatchingSet! ((setOfRules) {
         // TODO: Optimization: use the smallest set for the loop.
         //debug writeln (`Got a matching set of rules! `, setOfRules);
         foreach (ruleP; possibleMatches.keys) {
@@ -145,7 +156,7 @@ struct RuleMatcher {
             savedPossibleMatches [ruleP] = true;
           }
         }
-      }) (ruleVal, i + 1);
+      }) (ruleVal, i + 1, this.setsForPositions);
       
       // Also check for rule end.
       auto endingRulesAtPos = eor in setsForPositions [i + 2];
