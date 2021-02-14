@@ -8,7 +8,6 @@ struct Token {
   enum Type {
     comma
     , dot
-    , minus
     , openingBracket
     , closingBracket
     , openingParenthesis
@@ -177,10 +176,6 @@ LexRet asExpressions (R)(R inputLines, in ValueScope scope_) {
             currentLineTokens ~= Token (line [0..2], Token.Type.rightArrow);
             line = line [2..$];
             goto continueLine;
-          } else if (line.front == '-') {
-            currentLineTokens ~= Token (line.front.to!string, Token.Type.minus);
-            line.popFront ();
-            goto continueLine;
           } else if (line.startsWith (`//`)) {
             // Might be better to strip comments in the caller
             // Because we also need to check things such as \ at the end of line.
@@ -223,12 +218,12 @@ LexRet asExpressions (R)(R inputLines, in ValueScope scope_) {
             goto continueLine;
           }
           enum regexTypes = [
-            RegexType (ctRegex!`^[0-9]+\.[0-9]+`, floatLiteral)
+            RegexType (ctRegex!`^(?:\-?[0-9]+)\.[0-9]+`, floatLiteral)
             , RegexType (ctRegex!`^[0-9]+`, integerLiteral)
             /+, RegexType (ctRegex!`^\p{Ll}[\w]*`, identifier)
             , RegexType (ctRegex!`^\p{Lu}[\w]+`, typeIdentifier) +/
             , RegexType (ctRegex!`^\_[0-9]*`, underscoreIdentifier)
-            , RegexType (ctRegex!`\w+`, identifier)
+            , RegexType (ctRegex!`^\+|\-|\*|\/|(?:\w+)`, identifier)
             , RegexType (ctRegex!`^\\`, backslash) // Might be better to handle above
           ];
           bool foundMatchingRegex = false;

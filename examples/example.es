@@ -1,12 +1,12 @@
-4 plus \
+4 + \
 4
-apply { plus 3 }
+apply { + 3 }
 /* Comment */
-_ plus /* Spooky */ 3 /*
+_ + /* Spooky */ 3 /*
 plus 4 _ */
 /+ Nestable comment :D +/
 /+ Now /+ going +/
  another level deep +/
-plus 2
-// 3 plus 4 -> exampleVar
++ 2
+// 3 + 4 -> exampleVar
 

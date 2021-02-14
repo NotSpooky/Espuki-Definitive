@@ -120,7 +120,7 @@ shared static this () {
   import std.functional : toDelegate;
   globalRules = new RuleScope ([
     // I32 plus I32
-    fromD!plus (automaticParams!plus (1))
+    fromD!plus (automaticParams!plus (1, `+`))
     , fromD!writeString (automaticParams!writeString (0, `writeln`))
     // apply Expression [].
     , Rule (

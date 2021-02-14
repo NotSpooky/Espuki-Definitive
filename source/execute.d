@@ -548,6 +548,7 @@ RTValueNullOrErr executeFromLines (R)(R lines) if (is (ElementType!R == string))
         .visit! (res => RTValueNullOrErr (res));
     }
     , (UserError ue) {
+      import std.stdio : stderr;
       stderr.writeln (`Error: `, ue.message);
       return RTValueNullOrErr (ue);
     }

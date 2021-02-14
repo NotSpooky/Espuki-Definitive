@@ -1,2 +1,2 @@
-(I32 owo, con, queso) { owo plus 2 };
+(I32 owo, con, queso) { owo + 2 };
 5 con queso
