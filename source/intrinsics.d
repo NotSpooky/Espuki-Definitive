@@ -122,6 +122,21 @@ shared static this () {
     // I32 plus I32
     fromD!plus (automaticParams!plus (1, `+`))
     , fromD!writeString (automaticParams!writeString (0, `writeln`))
+    // Type [] to represent array types.
+    , Rule (
+      [
+        RuleParam (Kind)
+        , RuleParam (EmptyArray)
+      ]
+      , (
+        in RTValue [] args
+        , ref RuleMatcher ruleMatcher
+        , ref ValueScope valueScope
+      ) {
+        assert (args.length == 2);
+        return RTValue (Kind, Var(arrayOf (args [0].value.get!TypeId)));
+      }
+    )
     // apply Expression [].
     , Rule (
       [

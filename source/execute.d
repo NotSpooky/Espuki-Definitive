@@ -396,7 +396,8 @@ RTValue subValue (
     , ref RuleMatcher ruleMatcher
     , ref ValueScope scope_
   ) {
-  if (args.empty) {
+  assert (!args.empty);
+  if (args.length == 1 && args [0].length == 0) {
     return RTValue (EmptyArray, Var (null));
   }
   auto subVs = subValues (args, ruleMatcher, scope_);
@@ -462,7 +463,7 @@ RTValue executeFromExpression (
     lastResult.length <= 1
     , `TODO: Implement multiple return values to tuple conversion`
   );
-  assert (expression.args.length > 0, `Lexer shouldn't send empty expressions`);
+  assert (expression.args.length > 0, `Parser shouldn't send empty expressions`);
   const useImplicitFirstArg
     = !expression.usesUnderscore && lastResult.length > 0;
   auto args = (useImplicitFirstArg ? [
