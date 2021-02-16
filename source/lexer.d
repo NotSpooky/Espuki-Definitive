@@ -57,6 +57,9 @@ LexRet asExpressions (R)(R inputLines, in ValueScope scope_) {
   lexLine:
   while (!input.empty) {
     input = input.stripLeft ();
+    if (input.empty) {
+      break;
+    }
     Nullable! (Token.Type) type;
     with (Token.Type) {
       switch (input.front) {
