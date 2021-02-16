@@ -5,6 +5,7 @@ import std.conv;
 import std.range;
 import execute;
 import parser : Expression;
+import mir.algebraic : Nullable;
 debug import std.stdio;
 
 TypeId Kind; // Just a Type of Type.
@@ -130,6 +131,7 @@ shared static this () {
       ]
       , (
         in RTValue [] args
+        , in RTValue [] underscoreArgs
         , ref RuleMatcher ruleMatcher
         , ref ValueScope valueScope
       ) {
@@ -146,6 +148,7 @@ shared static this () {
       ]
       , (
         in RTValue [] args
+        , in RTValue [] underscoreArgs
         , ref RuleMatcher ruleMatcher
         , ref ValueScope valueScope
       ) {
@@ -156,7 +159,8 @@ shared static this () {
         );+/
         auto result = executeFromExpressions (
           args [2].value.get! (Expressions).expressions
-          , [args [0]]
+          , Nullable!RTValue (args [0])
+          , underscoreArgs
           , ruleMatcher
           , globalScope
         );
@@ -176,6 +180,7 @@ shared static this () {
       ]
       , (
         in RTValue [] args
+        , in RTValue [] underscoreArgs
         , ref RuleMatcher ruleMatcher
         , ref ValueScope valueScope
       ) {
@@ -193,6 +198,7 @@ shared static this () {
       ]
       , (
         in RTValue [] args
+        , in RTValue [] underscoreArgs
         , ref RuleMatcher ruleMatcher
         , ref ValueScope valueScope
       ) {
@@ -210,6 +216,7 @@ shared static this () {
       ]
       , (
         in RTValue [] args
+        , in RTValue [] underscoreArgs
         , ref RuleMatcher ruleMatcher
         , ref ValueScope valueScope
       ) {
@@ -235,6 +242,7 @@ shared static this () {
           rParams
           , (
             in RTValue [] newRArgs
+            , in RTValue [] underscoreArgs
             , ref RuleMatcher ruleMatcher
             , ref ValueScope valueScope
           ) {
@@ -245,7 +253,8 @@ shared static this () {
             return valueScope.withScope! ((s) {
               auto result = executeFromExpressions (
                 args [1].value.get! (Expressions).expressions
-                , []
+                , Nullable!RTValue (null)
+                , underscoreArgs
                 , ruleMatcher
                 , s
               );
@@ -306,6 +315,7 @@ Rule fromD (alias Fun) (RuleParam [] params = automaticParams!Fun) {
   alias Params = Parameters!Fun;
   return Rule (params, (
     in RTValue [] args
+    , in RTValue [] underscoreArgs
     , ref RuleMatcher ruleMatcher
     , ref ValueScope valueScope
   ) {

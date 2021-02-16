@@ -3,7 +3,7 @@ import std.algorithm;
 import std.conv : text, to;
 import std.exception : enforce;
 import std.typecons : Tuple, tuple;
-import parser : Expression, ExpressionArg, SumTypeArgs, ArrayArgs, TupleArgs;
+import parser;
 import rulematcher;
 
 /// An error in the code that the compiler/interpreter should show.
@@ -182,6 +182,7 @@ RTValue tryImplicitConversion (in RTValue val, TypeId objective) {
 
 alias ApplyFun = RTValue delegate (
   in RTValue [] inputs
+  , in RTValue [] underscoreArgs
   , ref RuleMatcher ruleMatcher
   , ref ValueScope valueScope
 );
@@ -253,6 +254,8 @@ struct RTValue {
           .to!string
       );
       sink (`]`);
+    } else if (type == Kind) {
+      sink (.toString (value.get!TypeId));
     } else {
       sink (value.visit! (a => a.to!string ()));
     }
@@ -352,47 +355,56 @@ struct MatchWithPos {
 RTValue lastMatchResult (
   ref RuleMatcher ruleMatcher
   , in RTValueOrSymbol [] args
+  , in RTValue [] underscoreArgs
   , ref ValueScope valueScope
 ) {
   auto asRTVals = args.map! (arg => arg.visit! (
     (RTValue val) => val
     , (string symbol) => RTValue (Symbol, Var (symbol))
   )).array;
-  if (asRTVals.length == 1) {
-    return asRTVals [0];
-  }
-  RTValue [] lastResult;
-  while (!asRTVals.empty) {
-    lastResult = [ruleMatcher.matchAndExecuteRule (asRTVals, valueScope)];
+  while (asRTVals.length > 1) {
+    //debug writeln (`AsRTVals is `, asRTVals);
+    auto res = ruleMatcher.matchAndExecuteRule (
+      asRTVals
+      , underscoreArgs
+      , valueScope
+    );
+    //debug writeln (`After applying, got as result `, res, ` and asRTVals `, asRTVals);
+    asRTVals = [res] ~ asRTVals;
     // debug writeln (`Last result is `, lastResult [0]);
   }
-  assert (lastResult.length > 0);
-  return lastResult [0];
+  assert (asRTVals.length == 1);
+  //debug writeln (`AsRTVals at end is `, asRTVals [0]);
+  return asRTVals [0];
 }
 
 RTValue subValue (
   const ExpressionArg [] args
+  , in RTValue [] underscoreArgs
   , ref RuleMatcher ruleMatcher
   , ref ValueScope scope_
 ) {
   return executeFromExpression (
     Expression (args, Nullable!string (null))
-    , [] // Last result isn't sent to subexpressions.
-      , ruleMatcher
-      , scope_
-    );
-  }
+    , Nullable!RTValue (null) // Last result isn't sent to subexpressions.
+    , underscoreArgs
+    , ruleMatcher
+    , scope_
+  );
+}
 
   auto subValues (
     const ExpressionArg [][] args
+    , in RTValue [] underscoreArgs
     , ref RuleMatcher ruleMatcher
   , ref ValueScope scope_
 ) {
-    return args.map! (eA => subValue (eA, ruleMatcher, scope_));
+    return args.map! (eA => subValue (eA, underscoreArgs, ruleMatcher, scope_));
   }
 
   RTValue createArray (
     const ExpressionArg [][] args
+    , in RTValue [] underscoreArgs
     , ref RuleMatcher ruleMatcher
     , ref ValueScope scope_
   ) {
@@ -400,7 +412,7 @@ RTValue subValue (
   if (args.length == 1 && args [0].length == 0) {
     return RTValue (EmptyArray, Var (null));
   }
-  auto subVs = subValues (args, ruleMatcher, scope_);
+  auto subVs = subValues (args, underscoreArgs, ruleMatcher, scope_);
   const elType = subVs.front.type;
   auto retType = arrayOf (elType);
   Var [] afterConversionArray = subVs
@@ -411,12 +423,13 @@ RTValue subValue (
 
 RTValue createSumType (
   const ExpressionArg [][] args
+  , in RTValue [] underscoreArgs
   , ref RuleMatcher ruleMatcher
   , ref ValueScope scope_
 ) {
   // First arg is the added type, second either a normal type or a sumtype.
   // debug writeln (`Args for sumtype: `, args);
-  auto subVs = subValues (args, ruleMatcher, scope_).array;
+  auto subVs = subValues (args, underscoreArgs, ruleMatcher, scope_).array;
   // debug writeln (`Types in sumtype `, subVs.map!(s => s.value.get!TypeId));
   assert (!subVs.empty);
   auto toRet = sumTypeOf (subVs);
@@ -427,6 +440,7 @@ RTValue createSumType (
         [RuleParam (RTValue (Kind, Var (toRet))), RuleParam (subV.value.get!TypeId)]
         , (
           in RTValue [] rArgs
+          , in RTValue [] underscoreArgs
           , ref RuleMatcher ruleMatcher
           , ref ValueScope valueScope
         ) {
@@ -441,10 +455,13 @@ RTValue createSumType (
 
 RTValue createTuple (
   const ExpressionArg [][] args
+  , in RTValue [] underscoreArgs
   , ref RuleMatcher ruleMatcher
   , ref ValueScope scope_
 ) {
-  return RTValue (TupleT, Var (subValues (args, ruleMatcher, scope_).array));
+  return RTValue (TupleT, Var (
+    subValues (args, underscoreArgs, ruleMatcher, scope_).array
+  ));
   assert (0, `TODO: createTuple`);
 }
 
@@ -455,24 +472,21 @@ RTValue createTuple (
 /// This process is repeated until the expression is exhausted or an error occurs.
 RTValue executeFromExpression (
   in Expression expression
-  , in RTValue [] lastResult
+  , in Nullable!RTValue implicitFirstArg
+  , in RTValue [] underscoreArgs
   , ref RuleMatcher ruleMatcher
   , ref ValueScope scope_
 ) {
-  assert (
-    lastResult.length <= 1
-    , `TODO: Implement multiple return values to tuple conversion`
-  );
   assert (expression.args.length > 0, `Parser shouldn't send empty expressions`);
-  const useImplicitFirstArg
-    = !expression.usesUnderscore && lastResult.length > 0;
-  auto args = (useImplicitFirstArg ? [
-    RTValueOrSymbol (lastResult [0])
-  ] : []) ~ expression.args.map! (a =>
+  auto args = (
+    implicitFirstArg.isNull
+      ? []
+      : [RTValueOrSymbol (implicitFirstArg.get!RTValue)]
+  ) ~ expression.args.map! (a =>
     a.visit! (
       (const Expression * subExpr) {
         auto subExprRet = executeFromExpression (
-          *subExpr, lastResult, ruleMatcher, scope_
+          *subExpr, Nullable!RTValue (null), underscoreArgs, ruleMatcher, scope_
         );
         return RTValueOrSymbol (subExprRet);
       }
@@ -491,50 +505,64 @@ RTValue executeFromExpression (
       , (const ArrayArgs!ExpressionArg arrayElementExpressions)
         => RTValueOrSymbol (createArray (
           arrayElementExpressions.args
+          , underscoreArgs
           , ruleMatcher
           , scope_
         ))
+      , (const UnderscoreIdentifier uid) {
+          const pos = uid.argPos;
+          enforce (
+            pos < underscoreArgs.length
+            , `Using underscore identifier at position that doesn't exist: `
+              ~ pos.to!string
+          );
+          return RTValueOrSymbol (underscoreArgs [pos]);
+      }
       , (const ExpressionArg [] subExpression)
-        => RTValueOrSymbol (subValue (subExpression, ruleMatcher, scope_))
+        => RTValueOrSymbol (
+          subValue (subExpression, underscoreArgs, ruleMatcher, scope_)
+        )
       , (const SumTypeArgs!ExpressionArg sumTypeArgs) 
-        => RTValueOrSymbol (createSumType (sumTypeArgs.args, ruleMatcher, scope_))
+        => RTValueOrSymbol (
+          createSumType (sumTypeArgs.args, underscoreArgs, ruleMatcher, scope_)
+        )
       , (const TupleArgs!ExpressionArg tupleArgs)
-        => RTValueOrSymbol (createTuple (tupleArgs.args, ruleMatcher, scope_))
+        => RTValueOrSymbol (
+          createTuple (tupleArgs.args, underscoreArgs, ruleMatcher, scope_)
+        )
     )
   ).array;
   if (args.length == 1 && args [0]._is!RTValue) {
     return args [0].get!RTValue;
   }
-  debug (2) writeln (`Got as last result `, lastResult.map! (a => a.to!string));
   debug (2) writeln (`Got as args `, args.map! (a => a.visit! (b => b.to!string)));
 
-  return lastMatchResult (ruleMatcher, args, scope_);
+  return lastMatchResult (ruleMatcher, args, underscoreArgs, scope_);
 }
 
 /// Chains multiple expressions together and returns the last one's return value
 /// Can return UserError on error.
 Nullable!RTValue executeFromExpressions (
   in Expression [] expressions
-  , RTValue [] lastResult
+  , Nullable!RTValue implicitFirstArg
+  , in RTValue [] underscoreArgs
   , ref RuleMatcher ruleMatcher
   , ref ValueScope scope_
 ) {
+  auto ua = underscoreArgs.dup;
   foreach (expression; expressions) {
     auto result = executeFromExpression (
-      expression, lastResult, ruleMatcher, scope_
+      expression, implicitFirstArg, ua, ruleMatcher, scope_
     );
+    ua = [result];
     if (expression.passThisResult) {
       // debug writeln (`res: `, result.get!RTValue.value.visit! (a => a.to!string));
-      lastResult = [result];
+      implicitFirstArg = Nullable!RTValue (result);
     } else {
-      lastResult = [];
+      implicitFirstArg = Nullable!RTValue (null);
     }
   }
-  if (lastResult.length > 0) {
-    return (Nullable!RTValue (lastResult [0]));
-  } else {
-    return Nullable!RTValue (null);
-  }
+  return implicitFirstArg;
 }
 
 debug import std.stdio;
@@ -545,7 +573,13 @@ RTValueNullOrErr executeFromLines (R)(R lines) if (is (ElementType!R == string))
   auto ruleMatcher = RuleMatcher (globalRules.rules);
   return asExpressions (lines, globalScope).visit! (
     (Expression [] expressions) { 
-      return executeFromExpressions (expressions, [], ruleMatcher, globalScope)
+      // debug writeln (`Got as expressions `, expressions);
+      return executeFromExpressions (
+        expressions
+        , Nullable!RTValue (null)
+        , []
+        , ruleMatcher, globalScope
+      )
         .visit! (res => RTValueNullOrErr (res));
     }
     , (UserError ue) {
@@ -576,6 +610,22 @@ struct Rule {
 
   nothrow @safe size_t toHash () const {
     assert (0, `TODO: Rule hash`);
+  }
+
+  void toString (
+    scope void delegate (const (char)[]) sink
+  ) const {
+    sink (`Rule of `);
+    sink (
+      params.map! (p =>
+        p.visit! (
+          (RTValue val) => val.value.visit! (to!string)
+          , (TypeId type) => .toString (type)
+        )
+      )
+      .joiner (" ")
+      .to!string ()
+    );
   }
 }
 

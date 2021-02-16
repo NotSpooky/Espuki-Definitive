@@ -2,6 +2,11 @@ module lexer;
 
 import std.conv;
 import std.range;
+import mir.algebraic;
+import std.algorithm;
+import execute : RTValue, UserError, ValueScope;
+import std.array;
+import std.exception;
 
 struct Token {
   string strVal;
@@ -18,11 +23,9 @@ struct Token {
     , integerLiteral
     , stringLiteral
     , identifier            // For variable names and symbols
-    , typeIdentifier        // For types, starts with uppercase
     , underscoreIdentifier  // _[0-9]+ has special meaning in this language
     , colon
     , semicolon             // Outside of this module, this shouldn't appear
-    , backslash             // Ditto
     , rightArrow
     , verticalLine          // Used for sumtypes
   }
@@ -31,17 +34,11 @@ struct Token {
 
 debug import std.stdio;
 
-import mir.algebraic;
-import std.algorithm;
-import execute : RTValue, UserError, ValueScope;
-
 import parser : Expression, ExpressionArg, toExpressionArgs;
 alias LexRet = Variant! (Expression [], UserError);
 
-import std.algorithm;
 // Mutable mess :)
 // Absolutely not proud of this function.
-
 /// Tries to generate a list of expressions from text.
 /// Note: Doesn't return a list of tokens.
 /// Those are handled here direclty or by using parser.toExpressionArgs
@@ -52,231 +49,204 @@ LexRet asExpressions (R)(R inputLines, in ValueScope scope_) {
   // a line.
   alias TokenAppender = Appender! (Token []);
   TokenAppender currentLineTokens;
-  bool inAsteriskComment = false;
-  uint plusCommentDepth = 0;
 
-  import std.array;
   import std.string;
-
+  // TODO: Don't read the entire file at once.
+  auto input = inputLines.joiner ("\n").to!string;
   // Note: Jumping to this label doesn't execute a popFront at the start.
   lexLine:
-  for (; !inputLines.empty; inputLines.popFront) {
-    auto line = inputLines.front;
-
-    continueLine:
-
-    // Comment handling
-    if (inAsteriskComment) {
-      assert (
-        plusCommentDepth == 0
-        , `Shouldn't be in 2 comment types at the same time`
-      );
-      if (line.findSkip (`*/`)) {
-        inAsteriskComment = false;
-      } else {
-        // Comment didn't finish on this line.
+  while (!input.empty) {
+    input = input.stripLeft ();
+    Nullable! (Token.Type) type;
+    with (Token.Type) {
+      switch (input.front) {
+        case ',':
+          type = comma;
+          break;
+        case '.':
+          type = dot;
+          break;
+        case '{':
+          type = openingBracket;
+          break;
+        case '}':
+          type = closingBracket;
+          break;
+        case '(':
+          type = openingParenthesis;
+          break;
+        case ')':
+          type = closingParenthesis;
+          break;
+        case '[':
+          type = openingSquareBracket;
+          break;
+        case ']':
+          type = closingSquareBracket;
+          break;
+        case ':':
+          type = colon;
+          break;
+        case '|':
+          type = verticalLine;
+          break;
+        case ';':
+          auto currentLineData = currentLineTokens [];
+          if (currentLineData.length == 0) {
+            return LexRet (UserError (`; found with empty left side`));
+          } else {
+            input.popFront ();
+            auto exprArgs = toExpressionArgs (
+              currentLineData
+              , scope_
+            );
+            if (exprArgs._is! (ExpressionArg [])) {
+              toRet ~= Expression (
+                exprArgs.get! (ExpressionArg [])
+                , Nullable!string (null)
+                , false
+              );
+            } else {
+              assert (exprArgs._is!UserError);
+              return LexRet (exprArgs.get!UserError);
+            }
+            currentLineTokens = TokenAppender ();
+            continue;
+          }
+        default:
+          break;
+      }
+      if (!type.isNull ()) {
+        // Was a single-character token.
+        currentLineTokens ~= Token (input.front.to!string, type.get ());
+        input.popFront ();
         continue;
       }
-    } else if (plusCommentDepth > 0) {
-      while (true) {
-        if (line.startsWith (`+/`) || line.startsWith (`/+`)) {
-          assert (line.length >= 2);
-          if (line.front == '+') { // Is +/
+      // Not in the single-character token list.
+      // Note that some regexes in this else are single character ones.
+      if (input.startsWith (`->`)) {
+        input = input [2 .. $];
+        assert (0, `TODO: Variable assignment token`);
+        // currentLineTokens ~= Token (input [], Token.Type.rightArrow);
+        // continue;
+      } else if (input.startsWith (`//`)) {
+        if (!input.findSkip ("\n")) {
+          // Comment ends at EOF.
+          break;
+        }
+        continue;
+      } else if (input.startsWith (`/*`)) {
+        input = input [2 .. $];
+        enforce (input.findSkip (`*/`), `No matching '*/' for '/*'`);
+        continue;
+      } else if (input.startsWith (`/+`)) {
+        input = input [2 .. $];
+        // Nestable comment
+        int plusCommentDepth = 1;
+        while (plusCommentDepth > 0) {
+          if (input.empty) {
+            throw new Exception (`No matching '+/' for '/+'`);
+          } else if (input.startsWith (`+/`)) {
             plusCommentDepth --;
-            line = line [2..$];
-            if (plusCommentDepth == 0) {
-              goto continueLine;
-            }
-          } else { // Is /+
-            assert (line.front == '/');
+            input = input [2 .. $];
+          } else if (input.startsWith (`/+`)) {
             plusCommentDepth ++;
-            line = line [2..$];
+            input = input [2 .. $];
+          } else {
+            // Didn't match boundary: still inside comment.
+            input.popFront;
           }
-        } else if (line.empty) {
-          // Comment didn't finish on this line.
-          inputLines.popFront ();
-          goto lexLine;
-        } else {
-          // Didn't match boundary: still inside comment.
-          line.popFront;
         }
+        continue;
+      } // End of comment handling.
+      // Multi-character token.
+      import std.regex;
+      struct RegexType {
+        alias CTReg = typeof (ctRegex!``);
+        CTReg regexS;
+        Token.Type type;
       }
-    }
-    while (!line.empty) {
-      line = line.stripLeft ();
-      if (line.empty) {
-        // Ignore empty lines.
-        break;
-      }
-      Nullable! (Token.Type) type;
-      with (Token.Type) {
-        switch (line.front) {
-          case ',':
-            type = comma;
-            break;
-          case '.':
-            type = dot;
-            break;
-          case '{':
-            type = openingBracket;
-            break;
-          case '}':
-            type = closingBracket;
-            break;
-          case '(':
-            type = openingParenthesis;
-            break;
-          case ')':
-            type = closingParenthesis;
-            break;
-          case '[':
-            type = openingSquareBracket;
-            break;
-          case ']':
-            type = closingSquareBracket;
-            break;
-          case ':':
-            type = colon;
-            break;
-          case '|':
-            type = verticalLine;
-            break;
-          case ';':
-            auto currentLineData = currentLineTokens [];
-            if (currentLineData.length == 0) {
-              return LexRet (UserError (`; found with empty left side`));
-            } else {
-              line.popFront ();
-              auto exprArgs = toExpressionArgs (
-                currentLineData
-                , scope_
-              );
-              if (exprArgs._is! (ExpressionArg [])) {
-                toRet ~= Expression (
-                  exprArgs.get! (ExpressionArg [])
-                  , Nullable!string (null)
-                  , false
-                );
-              } else {
-                assert (exprArgs._is!UserError);
-                return LexRet (exprArgs.get!UserError);
-              }
-              currentLineTokens = TokenAppender ();
-              goto continueLine;
-            }
-          default:
-            break;
-        }
-        if (!type.isNull ()) {
-          // Was a single-character token.
-          currentLineTokens ~= Token (line.front.to!string, type.get ());
-          line.popFront ();
-        } else {
-          if (line.startsWith (`->`)) {
-            currentLineTokens ~= Token (line [0..2], Token.Type.rightArrow);
-            line = line [2..$];
-            goto continueLine;
-          } else if (line.startsWith (`//`)) {
-            // Might be better to strip comments in the caller
-            // Because we also need to check things such as \ at the end of line.
-            break;
-          } else if (line.startsWith (`/*`)) {
-            inAsteriskComment = true;
-            line = line [2..$];
-            goto continueLine;
-          } else if (line.startsWith (`/+`)) {
-            plusCommentDepth ++;
-            line = line [2..$];
-            goto continueLine;
-          }
-          // Multi-character token.
-          import std.regex;
-          struct RegexType {
-            alias CTReg = typeof (ctRegex!``);
-            CTReg regexS;
-            Token.Type type;
-          }
-          if (line.front == '"') {
-            auto inputToUse = line [1..$];
-            while (true) {
-              if (inputToUse.startsWith (`\\`) || inputToUse.startsWith (`\"`)) {
-                //writeln (`Escaped token`);
-                inputToUse = inputToUse.drop (2);
-              } else if (inputToUse.empty) {
-                assert (0, `TODO: Multi-line string literals`);
-              } else if (inputToUse.front == '"') {
-                auto len = line.length - inputToUse.length + 1;
-                currentLineTokens ~= Token (line [1 .. len -1], stringLiteral);
-                line = line.drop (len);
+      if (input.front == '"') {
+        // String literal.
+        input.popFront ();
+        Appender!string toAdd = "";
+        while (true) {
+          enforce (!input.empty, `Unfinished string literal`);
+          if (input.front == '\\') {
+            // Escape characters.
+            input.popFront ();
+            switch (input.front) {
+              case '\\': case '"':
+                toAdd ~= input.front ();
                 break;
-              } else {
-                //writeln (`Normal character: `, inputToUse.front);
-                // Single non-escaped character
-                inputToUse.popFront ();
-              }
+              case 'n':
+                toAdd ~= '\n';
+                break;
+              case 'r':
+                toAdd ~= '\r';
+                break;
+              case 't':
+                toAdd ~= '\t';
+                break;
+              default:
+                assert (0, `TODO: Handle string literal escaping`);
             }
-            goto continueLine;
-          }
-          enum regexTypes = [
-            RegexType (ctRegex!`^(?:\-?[0-9]+)\.[0-9]+`, floatLiteral)
-            , RegexType (ctRegex!`^[0-9]+`, integerLiteral)
-            /+, RegexType (ctRegex!`^\p{Ll}[\w]*`, identifier)
-            , RegexType (ctRegex!`^\p{Lu}[\w]+`, typeIdentifier) +/
-            , RegexType (ctRegex!`^\_[0-9]*`, underscoreIdentifier)
-            , RegexType (ctRegex!`^\+|\-|\*|\/|(?:\w+)`, identifier)
-            , RegexType (ctRegex!`^\\`, backslash) // Might be better to handle above
-          ];
-          bool foundMatchingRegex = false;
-          foreach (regType; regexTypes) {
-            auto matched = line.matchFirst (regType.regexS);
-            if (!matched.empty) {
-              foundMatchingRegex = true;
-              auto matchedStr = matched.front;
-              currentLineTokens ~= Token (matchedStr, regType.type);
-              line = line [matchedStr.length .. $];
-              break;
-            }
-          }
-          if (!foundMatchingRegex) {
-            return LexRet (UserError (text (`Couldn't lex `, line)));
+            input.popFront ();
+          } else if (input.front == '"') {
+            // Finished string literal.
+            currentLineTokens ~= Token (toAdd [], stringLiteral);
+            input.popFront ();
+            goto lexLine; // Continue on outside loop.
+          } else {
+            // Single non-escaped character.
+            toAdd ~= input.front ();
+            input.popFront ();
           }
         }
+      } // End of string literal handling.
+      enum regexTypes = [
+        RegexType (ctRegex!`^(?:\-?[0-9]+)\.[0-9]+`, floatLiteral)
+        , RegexType (ctRegex!`^\-?[0-9]+`, integerLiteral)
+        /+, RegexType (ctRegex!`^\p{Ll}[\w]*`, identifier)
+        , RegexType (ctRegex!`^\p{Lu}[\w]+`, typeIdentifier) +/
+        , RegexType (ctRegex!`^\_[0-9]*`, underscoreIdentifier)
+        , RegexType (ctRegex!`^\+|\-|\*|\/|(?:\w+)`, identifier)
+      ];
+      bool foundMatchingRegex = false;
+      foreach (regType; regexTypes) {
+        auto matched = input.matchFirst (regType.regexS);
+        if (!matched.empty) {
+          foundMatchingRegex = true;
+          auto matchedStr = matched.front;
+          currentLineTokens ~= Token (matchedStr, regType.type);
+          input = input [matchedStr.length .. $];
+          break;
+        }
+      }
+      if (!foundMatchingRegex) {
+        throw new Exception (text (`Couldn't lex `, input));
       }
     }
-
-    auto currentLineData = currentLineTokens [];
-    if (currentLineData.length == 0) {
-      continue;
-    }
-    if (currentLineData [$-1].type == Token.Type.backslash) {
-      if (inputLines.empty) {
-        return LexRet (UserError (`Last line has \ at the end`));
-      }
-      currentLineTokens = appender (currentLineData [0..$-1]);
-      continue;
-    }
-    // Finished lexing a line, convert it to an expression.
-    auto exprArgs = toExpressionArgs (
-      currentLineData
-      , scope_
-    );
-    if (exprArgs._is! (ExpressionArg [])) {
-      auto exprArgsG = exprArgs.get! (ExpressionArg []);
-      if (exprArgsG.length > 0) {
-        // Don't add empty expressions.
-        toRet ~= Expression (
-          exprArgsG
-          , Nullable!string (`_`)
-        );
-      }
-    } else {
-      return LexRet (exprArgs.get!UserError);
-    }
-    currentLineTokens = TokenAppender ();
   }
-  if (inAsteriskComment) {
-    // TODO: Keep track of comment start.
-    return LexRet (UserError (`EOF reached but /* comment wasn't closed`));
+  auto currentLineData = currentLineTokens [];
+  // debug writeln (`Finished lexing a line: `, currentLineData);
+  // Finished lexing a line, convert it to an expression.
+  auto exprArgs = toExpressionArgs (
+    currentLineData
+    , scope_
+  );
+  if (exprArgs._is! (ExpressionArg [])) {
+    auto exprArgsG = exprArgs.get! (ExpressionArg []);
+    if (exprArgsG.length > 0) {
+      // Don't add empty expressions.
+      toRet ~= Expression (
+        exprArgsG
+        , Nullable!string (`_`)
+      );
+    }
+  } else {
+    return LexRet (exprArgs.get!UserError);
   }
+  currentLineTokens = TokenAppender ();
   return LexRet (toRet []);
 }

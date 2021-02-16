@@ -26,7 +26,7 @@ unittest {
   assert (testFile (`./examples/array.es`) == RTValue (
     arrOfInt, Var ([Var (1), Var (2), Var (3), Var (4), Var (5)]))
   );
-  assert (testFile (`./examples/example.es`) == RTValue (I32, Var (13)));
+  assert (testFile (`./examples/example.es`) == RTValue (I32, Var (18)));
   assert (testFile (`./examples/hello.es`) == RTValue (String, Var (`Hello world`)));
   debug writeln (`TODO: Test struct creation`);
   auto st = sumTypeOf ([

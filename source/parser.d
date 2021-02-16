@@ -19,9 +19,13 @@ struct ArrayArgs (T) {
 struct TupleArgs (T) {
   T [][] args;
 }
+struct UnderscoreIdentifier {
+  uint argPos;
+}
 private union EArg {
   string identifierOrSymbol;
   RTValue literalValue;
+  UnderscoreIdentifier underscoreId;
   This [] subExpression;
   ArrayArgs!This arrayArgs;
   SumTypeArgs!This sumTypeArgs;
@@ -39,15 +43,12 @@ struct Expression {
   Nullable!string name;
   /// Results are saved to first arg if this is true.
   bool passThisResult = true;
-  /// Expressions with underscores or without a previous value passed
-  /// don't add the previous value as implicit first argument.
-  bool usesUnderscore = false;
 
   nothrow @safe size_t toHash () const {
     return toHash (0);
   }
   nothrow @safe size_t toHash (size_t preHash) const {
-    preHash = name.hashOf (usesUnderscore.hashOf (preHash));
+    preHash = name.hashOf (preHash);
     foreach (arg; args) {
       arg.visit! (
         (Expression * subExpression) { preHash = (* subExpression).toHash (preHash); }
@@ -74,42 +75,6 @@ alias MaybeParams = Variant! (RuleParamsWithArgs, UserError);
 function is stored on an RTValue, same as literals
 +/
 
-/// Parses a list of tokens with format
-/// identifier * ((Type | Symbol identifier+) * identifier) ?
-MaybeParams ruleParams (Token [] tokens, ValueScope scope_) {
-  Appender! (TypeOrSymbol []) rulePsToRet;
-  Appender! (InputParam []) paramsToRet;
-  
-  with (Token.Type) {
-    for (
-      // Actually need the i.
-      uint i = 0
-      ; i < tokens.length
-      ; i ++
-    ) {
-      auto current = tokens [i];
-      if (current.type == identifier) {
-        rulePsToRet ~= TypeOrSymbol (current.strVal);
-      }
-      if (current.type == typeIdentifier) {
-        if (tokens.length < 2) {
-          return MaybeParams (UserError (
-            text (`Expected identifiers after `, current.strVal)
-          ));
-        }
-        auto type = scope_.find (current.strVal);
-        assert (type.type == Kind, `Types should be of type Kind`);
-        rulePsToRet ~= TypeOrSymbol (type.value.get!TypeId);
-        i ++;
-        auto nextT = tokens [i];
-        assert (nextT.type == identifier, `TODO: Type constructors`);
-        paramsToRet ~= InputParam (nextT.strVal, i);
-      }
-    }
-  }
-  return MaybeParams (RuleParamsWithArgs (rulePsToRet [], paramsToRet []));
-}
-
 ExpressionArg [][] nested (
   ref Token [] tokens
   , in ValueScope scope_
@@ -124,9 +89,9 @@ ExpressionArg [][] nested (
   tokens.popFront ();
   ExpressionArg [][] contents;
   with (Token.Type) {
-    if (tokens.front.type != closingBracket) {
+    if (tokens.front.type != rightDelimiter) {
       parseElement:
-        auto subArgs = toExpressionArgs (tokens, scope_);
+        auto subArgs = toExpressionArgs (tokens, scope_, [separator, rightDelimiter]);
         if (subArgs._is!UserError) {
           throw new Exception (subArgs.get!UserError.message);
         }
@@ -135,7 +100,7 @@ ExpressionArg [][] nested (
         }
         auto subExprArgs = subArgs.get! (ExpressionArg []);
         contents ~= subExprArgs;
-        if (tokens.front.type == comma) {
+        if (tokens.front.type == separator) {
           tokens.popFront ();
           goto parseElement;
         }
@@ -160,16 +125,32 @@ alias MaybeExpressionArgs = Variant! (ExpressionArg [], UserError);
 MaybeExpressionArgs toExpressionArgs (
   ref Token [] tokens
   , in ValueScope scope_
+  , Token.Type [] delimiters = []
 ) {
   //debug writeln (`Parsing: `, tokens);
   assert (!tokens.empty);
   Appender! (ExpressionArg []) toRet;
   for (; !tokens.empty; tokens.popFront ()) {
     auto token = tokens.front;
+    // debug writeln (`T: `, token);
     with (Token.Type) {
+      foreach (delimiter; delimiters) {
+        if (token.type == delimiter) {
+          goto lexEnd;
+        }
+      }
       switch (token.type) {
         case identifier:
           toRet ~= ExpressionArg (token.strVal);
+          break;
+        case underscoreIdentifier:
+          debug stderr.writeln (`TODO: Manage underscore identifiers`);
+          string num = token.strVal [1..$];
+          uint argPos = 0;
+          if (!num.empty) {
+            argPos = num.to!uint;
+          } 
+          toRet ~= ExpressionArg (UnderscoreIdentifier (argPos));
           break;
         case floatLiteral:
           debug (2) stderr.writeln (`TODO: Store float literals in infinite-precision`);
@@ -183,33 +164,17 @@ MaybeExpressionArgs toExpressionArgs (
           toRet ~= ExpressionArg (RTValue (String, Var (token.strVal)));
           break;
         case openingBracket:
-          // Note: This will also be used for storing graphs, in case there's no
-          // colon.
-          tokens.popFront ();
-          // TODO: Parse subexpressions instead of searching for first occurrence.
-          auto functionRuleParamEnd = tokens
-            .countUntil! (t => t.type == colon);
-          if (functionRuleParamEnd == -1) {
-            // No function rule params.
-            auto subArgs = toExpressionArgs (tokens, scope_);
-            if (subArgs._is!UserError) {
-              return subArgs;
-            }
-            auto subExprArgs = subArgs.get! (ExpressionArg []);
-            if (tokens.empty || tokens.front.type != closingBracket) {
-              return MaybeExpressionArgs (UserError (`No matching '}' for '{'`));
-            }
-            // Expression [] needs to be stored as void * to avoid forward
-            // reference errors.
-            auto ptr = new Expression [][1];
-            ptr [0] = [Expression (subExprArgs, Nullable!string (null))];
-            toRet ~= ExpressionArg (
-              RTValue (ArrayOfExpressions, Var (Expressions (ptr.ptr)))
-            );
-            // '}' popped automatically.
-          } else {
-            // There are function rule params.
-          }
+          /+auto functionRuleParamEnd = tokens
+            .countUntil! (t => t.type == colon);+/
+          auto subExprs = nested (
+            tokens, scope_, closingBracket, colon
+          );
+          assert (subExprs.length == 1, `TODO: Manage functions with rule params`);
+          auto ptr = new Expression [][1];
+          ptr [0] = [Expression (subExprs [0], Nullable!string (null))];
+          toRet ~= ExpressionArg (
+            RTValue (ArrayOfExpressions, Var (Expressions (ptr.ptr)))
+          );
           break;
         case openingParenthesis:
           auto subExprs = nested (
@@ -234,7 +199,7 @@ MaybeExpressionArgs toExpressionArgs (
               `Cannot end line with '|'`
             ));
           }
-          auto otherTypes = toExpressionArgs (tokens, scope_);
+          auto otherTypes = toExpressionArgs (tokens, scope_, delimiters);
           if (otherTypes._is!UserError) {
             return otherTypes;
           }
@@ -257,10 +222,10 @@ MaybeExpressionArgs toExpressionArgs (
           auto eA = ExpressionArg (genSumType);
           return MaybeExpressionArgs ([eA]);
         default:
-          return MaybeExpressionArgs (toRet []);
+          assert (0, `Unexpected token ` ~ token.to!string);
       }
     }
   }
-  //debug writeln (`Parsed expression args: `, toRet []);
+  lexEnd:
   return MaybeExpressionArgs (toRet []);
 }

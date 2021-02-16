@@ -26,6 +26,7 @@ auto ruleFrom (RuleParam [] vals) {
     vals
     , (
       in RTValue [] inputs
+      , in RTValue [] underscoreArgs
       , ref RuleMatcher ruleMatcher
       , ref ValueScope valueScope
     ) {
@@ -120,10 +121,20 @@ struct RuleMatcher {
   }
 
   /// Advances inputs.
-  RTValue matchAndExecuteRule (ref RTValue [] inputs, ref ValueScope valueScope) {
+  RTValue matchAndExecuteRule (
+    ref RTValue [] inputs
+    , in RTValue [] underscoreArgs
+    , ref ValueScope valueScope
+  ) {
     auto matched = this.matchRule (inputs);
-    RTValue toRet = matched.applyFun (inputs, this, valueScope);
-    inputs = inputs [matched.params.length .. $];
+    auto argLen = matched.params.length;
+    RTValue toRet = matched.applyFun (
+      inputs [0 .. argLen]
+      , underscoreArgs
+      , this
+      , valueScope
+    );
+    inputs = inputs [argLen .. $];
     return toRet;
   }
 
@@ -138,7 +149,7 @@ struct RuleMatcher {
         possibleMatches [ruleP] = true;
       }
     }) (inputs [0], 0, this.setsForPositions);
-    // debug writeln (`Possible matches is `, possibleMatches);
+    //debug writeln (`Possible matches is `, possibleMatches);
 
     foreach (i, ruleVal; inputs [1..$]) {
       if (setsForPositions.length == i) {
@@ -189,6 +200,7 @@ struct RuleMatcher {
     matches = matches.filter! (m => 
       m.params.enumerate.all! ((r) {
         auto dir = inputs [r [0]].implicitDir (r[1]);
+        //debug writeln (`Dir for `, inputs [r [0]], ` and `, r[1], ` is `, dir);
         return dir == ImplicitConversionDirection.firstToSecond
           || dir == ImplicitConversionDirection.twoAreTheSame;
       })
