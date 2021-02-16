@@ -112,10 +112,6 @@ shared static this () {
   Struct = ParametrizedKind (
     `Struct`, [ArrayOfTypes]
   );
-  auto SymbolOrNamedType = sumTypeOf (
-    [typeToRTValue (Symbol), typeToRTValue (NamedTypeT)]
-  );
-  auto ArrayOfSymbolOrNamedType = arrayOf (SymbolOrNamedType);
   ArrayOfExpressions = arrayOf (ExpressionT);
 
   import std.functional : toDelegate;
@@ -206,6 +202,21 @@ shared static this () {
         return RTValue (NamedTypeT, Var (NamedType (
           args [1].value.get!string, args [0].value.get!TypeId
         )));
+      }
+    )
+    , Rule (
+      [
+        RuleParam (`Struct`.asSymbol)
+        , RuleParam (arrayOf (NamedTypeT))
+      ]
+      , (
+        in RTValue [] args
+        , in RTValue [] underscoreArgs
+        , ref RuleMatcher ruleMatcher
+        , ref ValueScope valueScope
+      ) {
+        debug stderr.writeln (`TODO: Create struct types`);
+        return RTValue (I32, Var (9999));
       }
     )
     // Rule to add more rules.

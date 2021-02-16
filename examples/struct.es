@@ -1,3 +1,3 @@
-Struct [NamedType I32 "foo", NamedType String "bar"]
+Struct [I32 foo, String bar]
 // Instance it
 4 "9001"
