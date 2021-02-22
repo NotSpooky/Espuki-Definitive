@@ -4,7 +4,7 @@ import std.conv;
 import std.range;
 import mir.algebraic;
 import std.algorithm;
-import execute : RTValue, UserError, ValueScope;
+import execute : RTValue, ValueScope;
 import std.array;
 import std.exception;
 
@@ -35,14 +35,13 @@ struct Token {
 debug import std.stdio;
 
 import parser : Expression, ExpressionArg, toExpressionArgs;
-alias LexRet = Variant! (Expression [], UserError);
 
 // Mutable mess :)
 // Absolutely not proud of this function.
 /// Tries to generate a list of expressions from text.
 /// Note: Doesn't return a list of tokens.
 /// Those are handled here direclty or by using parser.toExpressionArgs
-LexRet asExpressions (R)(R inputLines, in ValueScope scope_) {
+Expression [] asExpressions (R)(R inputLines, in ValueScope scope_) {
   Appender! (Expression []) toRet;
   // Outside the loop as output lines might not have a 1:1 relationship with
   // input lines in cases such as empty/commented lines or '\' at the end of
@@ -96,23 +95,14 @@ LexRet asExpressions (R)(R inputLines, in ValueScope scope_) {
         case ';':
           auto currentLineData = currentLineTokens [];
           if (currentLineData.length == 0) {
-            return LexRet (UserError (`; found with empty left side`));
+            throw new Exception (`; found with empty left side`);
           } else {
             input.popFront ();
             auto exprArgs = toExpressionArgs (
               currentLineData
               , scope_
             );
-            if (exprArgs._is! (ExpressionArg [])) {
-              toRet ~= Expression (
-                exprArgs.get! (ExpressionArg [])
-                , Nullable!string (null)
-                , false
-              );
-            } else {
-              assert (exprArgs._is!UserError);
-              return LexRet (exprArgs.get!UserError);
-            }
+            toRet ~= Expression (exprArgs, Nullable!string (null), false);
             currentLineTokens = TokenAppender ();
             continue;
           }
@@ -238,18 +228,13 @@ LexRet asExpressions (R)(R inputLines, in ValueScope scope_) {
     currentLineData
     , scope_
   );
-  if (exprArgs._is! (ExpressionArg [])) {
-    auto exprArgsG = exprArgs.get! (ExpressionArg []);
-    if (exprArgsG.length > 0) {
-      // Don't add empty expressions.
-      toRet ~= Expression (
-        exprArgsG
-        , Nullable!string (`_`)
-      );
-    }
-  } else {
-    return LexRet (exprArgs.get!UserError);
+  if (exprArgs.length > 0) {
+    // Don't add empty expressions.
+    toRet ~= Expression (
+      exprArgs
+      , Nullable!string (`_`)
+    );
   }
   currentLineTokens = TokenAppender ();
-  return LexRet (toRet []);
+  return toRet [];
 }

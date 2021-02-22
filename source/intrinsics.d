@@ -74,7 +74,7 @@ auto visitTypeConvs (TypeId type) {
 
 private TypeId addPrimitive (string name) {
   // As of now, all variables will be stored on a Var, so that'll be the size.
-  return globalScope.addType (name, Var.sizeof).get!TypeId;
+  return globalScope.addType (name, Var.sizeof);
 }
 
 shared static this () {

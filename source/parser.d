@@ -64,7 +64,6 @@ struct RuleParamsWithArgs {
   TypeOrSymbol [] ruleParams;
   InputParam [] inputParams;
 }
-alias MaybeParams = Variant! (RuleParamsWithArgs, UserError);
 
 // Function syntax:
 /+
@@ -92,14 +91,10 @@ ExpressionArg [][] nested (
     if (tokens.front.type != rightDelimiter) {
       parseElement:
         auto subArgs = toExpressionArgs (tokens, scope_, [separator, rightDelimiter]);
-        if (subArgs._is!UserError) {
-          throw new Exception (subArgs.get!UserError.message);
-        }
         if (tokens.empty) {
           throw new Exception (errMessage ~ ` and finished line.`);
         }
-        auto subExprArgs = subArgs.get! (ExpressionArg []);
-        contents ~= subExprArgs;
+        contents ~= subArgs;
         if (tokens.front.type == separator) {
           tokens.popFront ();
           goto parseElement;
@@ -114,15 +109,12 @@ ExpressionArg [][] nested (
   }
 }
 
-struct Success {}
-alias SuccessOrError = Variant! (Success, UserError);
-alias MaybeExpressionArgs = Variant! (ExpressionArg [], UserError);
 /// Used to convert tokens to a list of:
 /// strings in case of symbols or identifiers
 /// values in case of literals,
 /// ExpressionArgs in case of subexpressions (pointer used to allow self-references).
 /// Note: Receives tokens by ref and advances it until the expression is parsed.
-MaybeExpressionArgs toExpressionArgs (
+ExpressionArg [] toExpressionArgs (
   ref Token [] tokens
   , in ValueScope scope_
   , Token.Type [] delimiters = []
@@ -194,18 +186,11 @@ MaybeExpressionArgs toExpressionArgs (
           break;
         case verticalLine:
           tokens.popFront ();
-          if (tokens.empty) {
-            return MaybeExpressionArgs (UserError (
-              `Cannot end line with '|'`
-            ));
-          }
+          import std.exception : enforce;
+          enforce (!tokens.empty, `Cannot end line with '|'`);
           auto otherTypes = toExpressionArgs (tokens, scope_, delimiters);
-          if (otherTypes._is!UserError) {
-            return otherTypes;
-          }
-          auto otherTypesAsEA = otherTypes.get! (ExpressionArg []);
-          assert (otherTypesAsEA.length == 1);
-          auto accum = otherTypesAsEA [0];
+          assert (otherTypes.length == 1);
+          auto accum = otherTypes [0];
           auto toRetArr = [toRet []];
           SumTypeArgs!ExpressionArg genSumType;
           if (accum._is! (SumTypeArgs!ExpressionArg)) {
@@ -216,16 +201,16 @@ MaybeExpressionArgs toExpressionArgs (
           } else {
             // expression to type | the next expression to type
             genSumType = SumTypeArgs!ExpressionArg (
-              toRetArr ~ otherTypesAsEA
+              toRetArr ~ otherTypes
             );
           }
           auto eA = ExpressionArg (genSumType);
-          return MaybeExpressionArgs ([eA]);
+          return [eA];
         default:
           assert (0, `Unexpected token ` ~ token.to!string);
       }
     }
   }
   lexEnd:
-  return MaybeExpressionArgs (toRet []);
+  return toRet [];
 }

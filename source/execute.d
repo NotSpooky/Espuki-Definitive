@@ -6,14 +6,6 @@ import std.typecons : Tuple, tuple;
 import parser;
 import rulematcher;
 
-/// An error in the code that the compiler/interpreter should show.
-struct UserError {
-  string message;
-  this (T ...)(T args) {
-    this.message = text (args);
-  }
-}
-
 /// Used to create parametrized types.
 struct ParametrizedKind {
   TypeId [] argTypes;
@@ -266,25 +258,25 @@ struct RTValue {
   }
 }
 
-alias TypeOrErr = Variant! (TypeId, UserError);
-
 struct ValueScope {
   Nullable!(ValueScope *) parent;
   private RTValue [string] values;
-  TypeOrErr addType (string identifier, size_t size) {
-    auto toRet = TypeOrErr (UserError (
-      `Type ` ~ identifier ~ ` already exists in the scope`)
-    );
+  TypeId addType (string identifier, size_t size) {
+    Nullable!TypeId toRet;
     this.values.require (
       identifier
       , {
         const typeId = globalTypeInfo.length;
         globalTypeInfo ~= new PrimitiveTypeInfo (identifier, size);
-        toRet = TypeOrErr (typeId);
+        toRet = Nullable!TypeId (typeId);
         return RTValue (Kind, Var(typeId));
       } ()
     );
-    return toRet;
+    enforce (
+      !toRet.isNull ()
+      ,`Type ` ~ identifier ~ ` already exists in the scope`
+    );
+    return toRet.get ();
   }
 
   Nullable!RTValue find (string name) {
@@ -336,8 +328,6 @@ auto apply (RTFunction fun, RTValue [] args) {
   }
   
 }
-
-alias RTValueNullOrErr = Variant! (RTValue, typeof (null), UserError);
 
 alias TypeOrSymbol = Variant! (TypeId, string);
 // Could simply add the strings as RTValues of symbols instead.
@@ -541,7 +531,6 @@ RTValue executeFromExpression (
 }
 
 /// Chains multiple expressions together and returns the last one's return value
-/// Can return UserError on error.
 Nullable!RTValue executeFromExpressions (
   in Expression [] expressions
   , Nullable!RTValue implicitFirstArg
@@ -567,27 +556,17 @@ Nullable!RTValue executeFromExpressions (
 
 debug import std.stdio;
 import std.range;
-RTValueNullOrErr executeFromLines (R)(R lines) if (is (ElementType!R == string)) {
+Nullable!RTValue executeFromLines (R)(R lines) if (is (ElementType!R == string)) {
   import lexer : asExpressions;
   import intrinsics : globalScope, globalRules;
   auto ruleMatcher = RuleMatcher (globalRules.rules);
-  return asExpressions (lines, globalScope).visit! (
-    (Expression [] expressions) { 
-      // debug writeln (`Got as expressions `, expressions);
-      return executeFromExpressions (
-        expressions
-        , Nullable!RTValue (null)
-        , []
-        , ruleMatcher, globalScope
-      )
-        .visit! (res => RTValueNullOrErr (res));
-    }
-    , (UserError ue) {
-      import std.stdio : stderr;
-      stderr.writeln (`Error: `, ue.message);
-      return RTValueNullOrErr (ue);
-    }
-  );
+  // debug writeln (`Got as expressions `, expressions);
+  return executeFromExpressions (
+    asExpressions (lines, globalScope)
+    , Nullable!RTValue (null)
+    , []
+    , ruleMatcher, globalScope
+  ).visit! (res => Nullable!RTValue (res));
 }
 
 size_t amountThatAreType (R)(R args) {

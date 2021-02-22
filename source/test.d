@@ -10,11 +10,10 @@ auto executeFromFile (string path) {
 
 private auto testFile (string path) {
   auto toRet = executeFromFile (path);
-  assert (!toRet._is!UserError, toRet.get!UserError.message);
   if (toRet._is!RTValue) {
     return Nullable!RTValue (toRet.get!RTValue);
   } else {
-    assert (toRet._is!(typeof(null)));
+    assert (toRet.isNull ());
     return Nullable!RTValue (null);
   }
 }
