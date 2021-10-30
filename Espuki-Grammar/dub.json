@@ -1,0 +1,14 @@
+{
+	"authors": [
+		"Christian Durán"
+	],
+	"copyright": "Copyright © 2021, Christian Durán",
+	"description": "Espuki Lexer/Parser.",
+	"license": "BSD-2",
+	"name": "espuki-grammar",
+  "dependencies": {
+    "pegged": "~>0.4.5",
+    "pegged:numbers": "~>0.4.5",
+    "pegged:strings": "~>0.4.5" 
+  }
+}
