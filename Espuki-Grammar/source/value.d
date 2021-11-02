@@ -54,6 +54,7 @@ struct Value {
     this.type = type;
     this.value = SumType! (VarWrapper, CompiledValue) (VarWrapper (value));
   }
+  @disable this ();
 
   size_t toHash () const nothrow @safe {
     return type.hashOf () + value.match! (a => a.toHash(), a => a.hashOf ());
@@ -62,10 +63,11 @@ struct Value {
   void toString (
     scope void delegate (const (char)[]) sink
   ) const {
+    import t = type;
     import std.algorithm;
     value.match! (
       (VarWrapper interpretedVal) {
-        sink (globalTypeInfo [this.type].toString ());
+        sink (globalTypeInfo [this.type].name);
         sink (` `);
         interpretedVal.var.match! (
           (Var [] v) {
@@ -77,6 +79,8 @@ struct Value {
                 .to!string
             );
             sink (`]`);
+          }, (string v) {
+            sink (v);
           }, (v) {
             sink (v.to!string);
           }

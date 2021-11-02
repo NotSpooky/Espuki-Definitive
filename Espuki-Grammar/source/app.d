@@ -1,4 +1,7 @@
+import std.algorithm;
+import std.array;
 import std.conv;
+import std.range;
 import std.stdio;
 import pegged.grammar;
 import pegged.tohtml; // Useful for debugging.
@@ -46,11 +49,11 @@ void main () {
   `));
   string toParse =
     //`"I'm some string";`
-    //`("Hello", "World", 5.010);`
+    `("Hello", "World", 5.010);`
     //`"Sleep"->honk;`
     //`"Olis""Sleeps";`
     //`5.010;`
-    `10;`
+    //`10;`
     // `((5, 10, 10.5, "Hello") "World" ("World2",) ("LastOne"));`
     //`(_2 _3);`
     //`{5.1 /* Sleep :3 */ _34}; /+ Hello +/`
@@ -68,11 +71,14 @@ Value parseProgram (ParseTree pt) {
       assert (pt.children.length == 1);
       return parseProgram (pt[0]);
     case `Program.Expressions`:
-      foreach (expression; pt.children) {
-        assert (expression.name == `Program.Expression`);
-        parseProgram (expression);
-      }
-      return Value ();
+      auto toRet = pt
+        .children
+        .tee !((a) { assert (a.name == `Program.Expression` ); })
+        .map! (a => parseProgram (a [0]))
+        .array ();
+      // Temporary while rule matcher is added again.
+      assert (toRet.length == 1, `TODO`);
+      return toRet [0];
     case `Program.Expression`:
       assert (pt.children.length == 1);
       return parseProgram (pt[0]);
@@ -85,6 +91,11 @@ Value parseProgram (ParseTree pt) {
     case `Program.IntegerLiteral`:
       assert (pt.matches.length == 1);
       return Value (I64, Var (pt.matches [0].to!long));
+    case `Program.TupleLiteral`:
+      return (Value (
+        TupleT,
+        Var (pt.children.map!(a => parseProgram(a)).array)
+      ));
     default:
       writeln (`> TODO: `, pt.name);
       assert (0);
