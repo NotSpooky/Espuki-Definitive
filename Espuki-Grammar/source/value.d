@@ -1,7 +1,7 @@
 import std.sumtype;
 import std.conv : to;
 import rule;
-import type : TypeId, NamedType, globalTypeInfo;
+import type : TypeId, NamedType, globalTypeInfo, Kind;
 
 struct StructType {
   size_t [TypeId] offsets;
@@ -26,6 +26,11 @@ alias Var = SumType! (
   , Expression [] * /* Was Expressions */
   , StructType
 );
+
+// Note: Verbose name because TypeId == long.
+Value typeToValue (TypeId type) {
+  return Value (Kind, Var (type));
+}
 
 // Compiled values aren't known in the interpreter, they are meant to be calculated
 // at runtime.

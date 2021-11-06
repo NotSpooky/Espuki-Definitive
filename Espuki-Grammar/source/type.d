@@ -12,7 +12,11 @@ class TypeInfo_ {
     this.size = size;
     this.name = name;
   }
+  override string toString () {
+    return name;
+  }
 }
+
 TypeInfo_ [] globalTypeInfo;
 
 private int lastTypeId = 0;

@@ -49,7 +49,8 @@ void main () {
   `));
   string toParse =
     //`"I'm some string";`
-    `("Hello", "World", 5.010);`
+    //`("Hello", "World", 5.010);`
+    `["First", "Second", "Third"];`
     //`"Sleep"->honk;`
     //`"Olis""Sleeps";`
     //`5.010;`
@@ -96,6 +97,9 @@ Value parseProgram (ParseTree pt) {
         TupleT,
         Var (pt.children.map!(a => parseProgram(a)).array)
       ));
+    case `Program.ArrayLiteral`:
+      //return Value(ArrayOf
+      assert (0, `TODO`);
     default:
       writeln (`> TODO: `, pt.name);
       assert (0);
