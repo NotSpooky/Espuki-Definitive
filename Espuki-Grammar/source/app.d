@@ -88,7 +88,7 @@ Value parseProgram (ParseTree pt) {
       return Value (String, Var (pt.matches [0].to!string));
     case `Program.FloatLiteral`:
       assert (pt.matches.length == 1);
-      return Value (Float, Var (pt.matches [0].to!float)); // TODO: Store literals as another type.
+      return Value (F32, Var (pt.matches [0].to!float)); // TODO: Store literals as another type.
     case `Program.IntegerLiteral`:
       assert (pt.matches.length == 1);
       return Value (I64, Var (pt.matches [0].to!long));

@@ -100,17 +100,33 @@ private TypeId addPrimitive (string name) {
 
 TypeId Kind; // Just a Type of Type.
 TypeId String;
-TypeId Float;
+TypeId Bool;
+TypeId I8;
+TypeId I16;
+TypeId I32;
 TypeId I64;
+TypeId F32;
+TypeId F64;
 TypeId TupleT;
 
 shared static this () {
   // Primitives:
   Kind = addPrimitive (`Kind`);
   String = addPrimitive (`String`);
-  Float = addPrimitive (`Float`);
+  Bool = addPrimitive (`Bool`);
+  I8 = addPrimitive (`I8`);
+  I16 = addPrimitive (`I16`);
+  I32 = addPrimitive (`I32`);
   I64 = addPrimitive (`I64`);
+  F32 = addPrimitive (`F32`);
+  F64 = addPrimitive (`F64`);
   TupleT = addPrimitive (`Tuple`);
+
+  // Implicit conversions:
+  implicitConversions [F32] = TypeImplicitConversions ([F64]);
+  implicitConversions [I32] = TypeImplicitConversions ([F64, I64]);
+  implicitConversions [I16] = TypeImplicitConversions ([F32, I32]);
+  implicitConversions [I8] = TypeImplicitConversions ([I16]);
 }
 
 /// Used to create parametrized types.
