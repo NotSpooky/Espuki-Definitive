@@ -66,9 +66,31 @@ class TypeInfo_ {
   }
 }
 
-import value : Value;
+private int lastTypeId = 0;
+private TypeId addPrimitive (string name) {
+  // As of now, all variables will be stored on a Var, so that'll be the size.
+  // return globalScope.addType (name, Var.sizeof);
+  import value : Var;
+  globalTypeInfo ~= new TypeInfo_ (Var.sizeof, name);
+  return globalTypeInfo.length - 1;
+}
 
-class ParametrizedTypeInfo : TypeInfo_ {
+// Initialized on module constructor.
+TypeId Kind; // Just a Type of Type.
+TypeId String;
+TypeId Bool;
+TypeId I8;
+TypeId I16;
+TypeId I32;
+TypeId I64;
+TypeId F32;
+TypeId F64;
+TypeId TupleT;
+
+TypeInfo_ [] globalTypeInfo;
+
+import value : Value;
+private class ParametrizedTypeInfo : TypeInfo_ {
   const ParametrizedKind * kind;
   const Value [] args;
   this (ParametrizedKind * kind, const Value [] args, size_t size) {
@@ -85,48 +107,6 @@ class ParametrizedTypeInfo : TypeInfo_ {
     this.kind = kind;
     this.args = args;
   }
-}
-
-TypeInfo_ [] globalTypeInfo;
-
-private int lastTypeId = 0;
-private TypeId addPrimitive (string name) {
-  // As of now, all variables will be stored on a Var, so that'll be the size.
-  // return globalScope.addType (name, Var.sizeof);
-  import value : Var;
-  globalTypeInfo ~= new TypeInfo_ (Var.sizeof, name);
-  return globalTypeInfo.length - 1;
-}
-
-TypeId Kind; // Just a Type of Type.
-TypeId String;
-TypeId Bool;
-TypeId I8;
-TypeId I16;
-TypeId I32;
-TypeId I64;
-TypeId F32;
-TypeId F64;
-TypeId TupleT;
-
-shared static this () {
-  // Primitives:
-  Kind = addPrimitive (`Kind`);
-  String = addPrimitive (`String`);
-  Bool = addPrimitive (`Bool`);
-  I8 = addPrimitive (`I8`);
-  I16 = addPrimitive (`I16`);
-  I32 = addPrimitive (`I32`);
-  I64 = addPrimitive (`I64`);
-  F32 = addPrimitive (`F32`);
-  F64 = addPrimitive (`F64`);
-  TupleT = addPrimitive (`Tuple`);
-
-  // Implicit conversions:
-  implicitConversions [F32] = TypeImplicitConversions ([F64]);
-  implicitConversions [I32] = TypeImplicitConversions ([F64, I64]);
-  implicitConversions [I16] = TypeImplicitConversions ([F32, I32]);
-  implicitConversions [I8] = TypeImplicitConversions ([I16]);
 }
 
 /// Used to create parametrized types.
@@ -172,4 +152,27 @@ struct ParametrizedKind {
       ));
     }
   }
+}
+
+shared static this () {
+  // Primitives:
+  Kind = addPrimitive (`Kind`);
+  String = addPrimitive (`String`);
+  Bool = addPrimitive (`Bool`);
+  I8 = addPrimitive (`I8`);
+  I16 = addPrimitive (`I16`);
+  I32 = addPrimitive (`I32`);
+  I64 = addPrimitive (`I64`);
+  F32 = addPrimitive (`F32`);
+  F64 = addPrimitive (`F64`);
+  TupleT = addPrimitive (`Tuple`);
+
+  // Implicit conversions:
+  implicitConversions [F32] = TypeImplicitConversions ([F64]);
+  implicitConversions [I32] = TypeImplicitConversions ([F64, I64]);
+  implicitConversions [I16] = TypeImplicitConversions ([F32, I32]);
+  implicitConversions [I8] = TypeImplicitConversions ([I16]);
+
+  // Intrinsic parametrized types:
+  auto ArrayKind = ParametrizedKind("Array", [Kind]);
 }
