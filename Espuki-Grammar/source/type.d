@@ -1,6 +1,7 @@
 import std.range;
 import std.algorithm;
 import std.conv;
+import value;
 
 alias TypeId = size_t;
 
@@ -89,7 +90,6 @@ TypeId TupleT;
 
 TypeInfo_ [] globalTypeInfo;
 
-import value : Value;
 private class ParametrizedTypeInfo : TypeInfo_ {
   const ParametrizedKind * kind;
   const Value [] args;
@@ -154,6 +154,13 @@ struct ParametrizedKind {
   }
 }
 
+ParametrizedKind ArrayKind;
+
+auto ArrayOf (TypeId type) {
+  // TODO: Check size.
+  return ArrayKind.instance ([Value (Kind, Var(type))], long.sizeof);
+}
+
 shared static this () {
   // Primitives:
   Kind = addPrimitive (`Kind`);
@@ -174,5 +181,5 @@ shared static this () {
   implicitConversions [I8] = TypeImplicitConversions ([I16]);
 
   // Intrinsic parametrized types:
-  auto ArrayKind = ParametrizedKind("Array", [Kind]);
+  ArrayKind = ParametrizedKind("Array", [Kind]);
 }
