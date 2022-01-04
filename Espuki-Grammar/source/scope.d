@@ -8,13 +8,13 @@ import type : TypeId, globalTypeInfo, TypeInfo_;
 struct ValueScope {
   Nullable!(ValueScope *) parent;
   private Value [string] values;
-  TypeId addType (string identifier, size_t size) {
+  TypeId addType (string identifier/*, size_t size*/) {
     Nullable!TypeId toRet;
     this.values.require (
       identifier
       , {
         const typeId = globalTypeInfo.length;
-        globalTypeInfo ~= new TypeInfo_ (size, identifier);
+        globalTypeInfo ~= new TypeInfo_ (/*size,*/ identifier);
         toRet = Nullable!TypeId (typeId);
         return typeToValue (typeId);
       } ()

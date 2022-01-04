@@ -56,10 +56,10 @@ struct NamedType {
 
 // Can be directly instanced for primitive types.
 class TypeInfo_ {
-  const size_t size;
+  //const size_t size;
   string name;
-  this (size_t size, string name) {
-    this.size = size;
+  this (/*size_t size,*/ string name) {
+    //this.size = size;
     this.name = name;
   }
   override string toString () {
@@ -72,7 +72,7 @@ private TypeId addPrimitive (string name) {
   // As of now, all variables will be stored on a Var, so that'll be the size.
   // return globalScope.addType (name, Var.sizeof);
   import value : Var;
-  globalTypeInfo ~= new TypeInfo_ (Var.sizeof, name);
+  globalTypeInfo ~= new TypeInfo_ (/*Var.sizeof,*/ name);
   return globalTypeInfo.length - 1;
 }
 
@@ -87,13 +87,14 @@ TypeId I64;
 TypeId F32;
 TypeId F64;
 TypeId TupleT;
+TypeId EmptyArray;
 
 TypeInfo_ [] globalTypeInfo;
 
 private class ParametrizedTypeInfo : TypeInfo_ {
   const ParametrizedKind * kind;
   const Value [] args;
-  this (ParametrizedKind * kind, const Value [] args, size_t size) {
+  this (ParametrizedKind * kind, const Value [] args /*, size_t size */) {
     assert (kind !is null);
     string name = kind.baseName ~ ` (` ~
       args.map! (a => a.value.to!string ) /*match! (
@@ -103,7 +104,7 @@ private class ParametrizedTypeInfo : TypeInfo_ {
         .joiner (`, `)
         .to!string
     ~ `)`;
-    super (size, name);
+    super (/*size,*/ name);
     this.kind = kind;
     this.args = args;
   }
@@ -134,7 +135,7 @@ struct ParametrizedKind {
     }
   }
 
-  TypeId instance (const Value [] args, size_t size) {
+  TypeId instance (const Value [] args /*, size_t size*/) {
     // Args should have the Kind's expected types.
     if (
       zip (StoppingPolicy.requireSameLength, args.map!`a.type`, argTypes)
@@ -144,7 +145,7 @@ struct ParametrizedKind {
       return instance (args, () => new ParametrizedTypeInfo (
         &this
         , args
-        , size //args.map! (a => globalTypeInfo [a.value.get!TypeId].size).sum
+        /*, size //args.map! (a => globalTypeInfo [a.value.get!TypeId].size).sum*/
       ));
     } else {
       throw new Exception (text (
@@ -158,7 +159,7 @@ ParametrizedKind ArrayKind;
 
 auto ArrayOf (TypeId type) {
   // TODO: Check size.
-  return ArrayKind.instance ([Value (Kind, Var(type))], long.sizeof);
+  return ArrayKind.instance ([Value (Kind, Var(type))]);
 }
 
 shared static this () {
@@ -173,6 +174,7 @@ shared static this () {
   F32 = addPrimitive (`F32`);
   F64 = addPrimitive (`F64`);
   TupleT = addPrimitive (`Tuple`);
+  EmptyArray = addPrimitive (`EmptyArray`);
 
   // Implicit conversions:
   implicitConversions [F32] = TypeImplicitConversions ([F64]);

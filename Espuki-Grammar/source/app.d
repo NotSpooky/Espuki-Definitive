@@ -3,11 +3,12 @@ import std.array;
 import std.conv;
 import std.range;
 import std.stdio;
+import std.sumtype;
 import pegged.grammar;
 import pegged.tohtml; // Useful for debugging.
 import pegString = pegged.examples.strings;
 import pegged.examples.numbers;
-import value : Value, Var;
+import value;
 import type;
 
 void main () {
@@ -95,11 +96,25 @@ Value parseProgram (ParseTree pt) {
     case `Program.TupleLiteral`:
       return (Value (
         TupleT,
-        Var (pt.children.map!(a => parseProgram(a)).array)
+        Var (pt.children.map! (a => parseProgram(a)).array)
       ));
     case `Program.ArrayLiteral`:
-      //return Value(ArrayOf
-      assert (0, `TODO`);
+      auto parsedTree = pt.children.map! (element => parseProgram (element)).array;
+      if (parsedTree.length == 0) {
+        return Value (
+          EmptyArray, Var(Value[].init)
+        );
+      } else {
+        auto varToRet = new Var [parsedTree.length];
+        return Value (
+          ArrayOf(parsedTree [0].type),
+          // TODO: Store as an array of Var instead of arrays of values
+          // To do so, the D type must be extracted from the Values
+          Var (parsedTree.map!(a =>
+            a.value.tryMatch!((VarWrapper a) => a.var)
+          ).array)
+        );
+      }
     default:
       writeln (`> TODO: `, pt.name);
       assert (0);
