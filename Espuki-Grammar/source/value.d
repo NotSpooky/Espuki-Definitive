@@ -75,7 +75,7 @@ struct Value {
         sink (globalTypeInfo [this.type].name);
         sink (` `);
         interpretedVal.var.match! (
-          (Var [] v) {
+          (const Var [] v) {
             sink (`[`);
             sink (
               v
@@ -86,6 +86,21 @@ struct Value {
             sink (`]`);
           }, (string v) {
             sink (v);
+          }, (const Value [] v) {
+            sink (`[`);
+            sink (
+              v
+                .map! (b => b.to!string ())
+                .joiner (`, `)
+                .to!string
+            );
+            sink (`]`);
+          }, (size_t v) {
+            if (type == Kind) {
+              sink (globalTypeInfo [v].name);
+            } else {
+              sink (v.to!string);
+            }
           }, (v) {
             sink (v.to!string);
           }

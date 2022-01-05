@@ -1,6 +1,7 @@
-import std.range;
 import std.algorithm;
 import std.conv;
+import std.sumtype;
+import std.range;
 import value;
 
 alias TypeId = size_t;
@@ -96,11 +97,9 @@ private class ParametrizedTypeInfo : TypeInfo_ {
   const Value [] args;
   this (ParametrizedKind * kind, const Value [] args /*, size_t size */) {
     assert (kind !is null);
+    import std.stdio;
     string name = kind.baseName ~ ` (` ~
-      args.map! (a => a.value.to!string ) /*match! (
-        (CompiledValue b) => b.to!string,
-        (VarWrapper b) => b.to!string
-      ))*/
+      args.map! (a => a.to!string)
         .joiner (`, `)
         .to!string
     ~ `)`;
