@@ -1,3 +1,5 @@
+module scopes;
+
 ValueScope globalScope;
 
 import std.exception : enforce;

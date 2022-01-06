@@ -1,3 +1,5 @@
+module value;
+
 import std.sumtype;
 import std.conv : to;
 import rule;

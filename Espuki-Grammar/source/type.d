@@ -1,3 +1,5 @@
+module type;
+
 import std.algorithm;
 import std.conv;
 import std.sumtype;
