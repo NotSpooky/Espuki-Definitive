@@ -4,7 +4,14 @@ import value : Value;
 import type : TypeId;
 
 struct RuleMatcher {
-  // TODO.
+  Value match (T)(T toMatch) {
+    import std.stdio;
+    writeln (`DEB: Matching `, toMatch);
+
+    import type : I64;
+    import value : Var;
+    return Value (I64, Var(777));
+  }
 }
 
 struct ValueScope {

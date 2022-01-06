@@ -78,7 +78,9 @@ private TypeId addPrimitive (string name) {
 }
 
 // Initialized on module constructor.
-TypeId Kind; // Just a Type of Type.
+TypeId Kind;   // A Type of Type.
+TypeId Symbol; // A single word in the program, can be resolved as an identifier.
+               // Can also be matched as-is.
 TypeId String;
 TypeId Bool;
 TypeId I8;
@@ -164,6 +166,7 @@ auto ArrayOf (TypeId type) {
 shared static this () {
   // Primitives:
   Kind = addPrimitive (`Kind`);
+  Symbol = addPrimitive (`Symbol`);
   String = addPrimitive (`String`);
   Bool = addPrimitive (`Bool`);
   I8 = addPrimitive (`I8`);

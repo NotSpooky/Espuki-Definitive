@@ -10,6 +10,7 @@ import pegString = pegged.examples.strings;
 import pegged.examples.numbers;
 import value;
 import type;
+import rule;
 
 void main () {
   // TODO: Spacing.
@@ -26,9 +27,9 @@ void main () {
                    / Grouping
                    / ArrayLiteral
                    / Lambda
-                   / TypeName
                    / InputPosReference
                    / InputNameReference
+                   / Symbol
     # Scientific: (FloatLiteral / IntegerLiteral) ( ('e' / 'E' ) Integer )
       Assignment < Expression "->" identifier
       LastReference <- :'_' [0-9]*
@@ -39,7 +40,6 @@ void main () {
       ArrayLiteral <- :'[' Spacing ((Expressions Spacing :',')* Spacing Expressions)? Spacing :','? Spacing :']'
       Grouping < :'(' :Spacing Expressions :Spacing :')'
       Lambda < :'{' Expressions :'}'
-      TypeName <~ identifier | eps
       InputPosReference <- 'in' :SingleSpacing+ IntegerLiteral
       InputNameReference <- 'in' :SingleSpacing+ identifier
       Comment <: ("/*" (!("/*" / "*/") .)* "*/")
@@ -47,16 +47,20 @@ void main () {
       Text    <: (!("/+" / "+/") .)* # Anything but begin/end markers
       SingleSpacing <- :(' ' / '\t' / '\r' / '\n' / '\r\n' / Comment / NestableComment)
       Spacing <- :(SingleSpacing)*
+      Symbol <- identifier
   `));
+  RuleMatcher ruleMatcher;
   string toParse =
     //`"I'm some string";`
     //`("Hello", "World", 5.010);`
-    `["First", "Second", "Third"];`
+    //`["First", "Second", "Third"];`
     //`"Sleep"->honk;`
-    //`"Olis""Sleeps";`
     //`5.010;`
     //`10;`
-    // `((5, 10, 10.5, "Hello") "World" ("World2",) ("LastOne"));`
+    `["hello" to "goodbye", "thank you" to "you're welcome"];`
+    // TODO from here:
+    //`"Olis""Sleeps";`
+    //`((5, 10, 10.5, "Hello") "World" ("World2",) ("LastOne"));`
     //`(_2 _3);`
     //`{5.1 /* Sleep :3 */ _34}; /+ Hello +/`
     ;
@@ -64,26 +68,30 @@ void main () {
   //toHTML(parseTree, File(`spooks.html`, `w`));
   auto decimatedTree = Program.decimateTree (parseTree);
   writeln (decimatedTree);
-  writeln (parseProgram (decimatedTree));
+  writeln (parseProgram (decimatedTree, ruleMatcher));
 }
 
-Value parseProgram (ParseTree pt) {
+Value parseProgram (ParseTree pt, RuleMatcher ruleMatcher) {
   switch (pt.name) {
     case `Program.Program`:
       assert (pt.children.length == 1);
-      return parseProgram (pt[0]);
+      return parseProgram (pt[0], ruleMatcher);
     case `Program.Expressions`:
       auto toRet = pt
         .children
-        .tee !((a) { assert (a.name == `Program.Expression` ); })
-        .map! (a => parseProgram (a [0]))
+        .tee !((child) {
+          assert (child.name == `Program.Expression` );
+          assert (
+            child.matches.length == 1
+            , `Expected expressions to have a single element: ` ~ child.to!string
+          );
+        })
+        .map! (child => parseProgram (child [0], ruleMatcher))
         .array ();
-      // Temporary while rule matcher is added again.
-      assert (toRet.length == 1, `TODO`);
-      return toRet [0];
+      return ruleMatcher.match (toRet);
     case `Program.Expression`:
       assert (pt.children.length == 1);
-      return parseProgram (pt[0]);
+      return parseProgram (pt[0], ruleMatcher);
     case `Program.StringLiteral`:
       assert (pt.matches.length == 1);
       return Value (String, Var (pt.matches [0].to!string));
@@ -96,10 +104,10 @@ Value parseProgram (ParseTree pt) {
     case `Program.TupleLiteral`:
       return (Value (
         TupleT,
-        Var (pt.children.map! (a => parseProgram(a)).array)
+        Var (pt.children.map! (a => parseProgram(a, ruleMatcher)).array)
       ));
     case `Program.ArrayLiteral`:
-      auto parsedTree = pt.children.map! (element => parseProgram (element)).array;
+      auto parsedTree = pt.children.map! (element => parseProgram (element, ruleMatcher)).array;
       if (parsedTree.length == 0) {
         return Value (
           EmptyArray, Var(Value[].init)
@@ -115,6 +123,9 @@ Value parseProgram (ParseTree pt) {
           ).array)
         );
       }
+    case `Program.Symbol`:
+      writeln (`Got symbol: `, pt);
+      return Value (Symbol, Var (pt.matches [0]));
     default:
       writeln (`> TODO: `, pt.name);
       assert (0);
