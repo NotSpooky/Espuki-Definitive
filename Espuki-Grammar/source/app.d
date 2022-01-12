@@ -70,14 +70,14 @@ void main () {
   //toHTML(parseTree, File(`spooks.html`, `w`));
   auto decimatedTree = Program.decimateTree (parseTree);
   writeln (decimatedTree);
-  writeln (parseProgram (decimatedTree, ruleMatcher));
+  writeln (parseProgram (decimatedTree, ruleMatcher, []));
 }
 
-Value parseProgram (ParseTree pt, RuleMatcher ruleMatcher) {
+Value parseProgram (ParseTree pt, RuleMatcher ruleMatcher, Rule [] rules) {
   switch (pt.name) {
     case `Program.Program`:
       assert (pt.children.length == 1);
-      return parseProgram (pt[0], ruleMatcher);
+      return parseProgram (pt[0], ruleMatcher, rules);
     case `Program.Expressions`:
       auto toRet = pt
         .children
@@ -88,12 +88,12 @@ Value parseProgram (ParseTree pt, RuleMatcher ruleMatcher) {
             , `Expected expressions to have a single element: ` ~ child.to!string
           );
         })
-        .map! (child => parseProgram (child [0], ruleMatcher))
+        .map! (child => parseProgram (child [0], ruleMatcher, rules))
         .array ();
-      return ruleMatcher.match (toRet);
+      return ruleMatcher.match (toRet, rules);
     case `Program.Expression`:
       assert (pt.children.length == 1);
-      return parseProgram (pt[0], ruleMatcher);
+      return parseProgram (pt[0], ruleMatcher, rules);
     case `Program.StringLiteral`:
       assert (pt.matches.length == 1);
       return Value (String, Var (pt.matches [0].to!string));
@@ -106,10 +106,10 @@ Value parseProgram (ParseTree pt, RuleMatcher ruleMatcher) {
     case `Program.TupleLiteral`:
       return (Value (
         TupleT,
-        Var (pt.children.map! (a => parseProgram(a, ruleMatcher)).array)
+        Var (pt.children.map! (a => parseProgram(a, ruleMatcher, rules)).array)
       ));
     case `Program.ArrayLiteral`:
-      auto parsedTree = pt.children.map! (element => parseProgram (element, ruleMatcher)).array;
+      auto parsedTree = pt.children.map! (element => parseProgram (element, ruleMatcher, rules)).array;
       if (parsedTree.length == 0) {
         return Value (
           EmptyArray, Var(Value[].init)
