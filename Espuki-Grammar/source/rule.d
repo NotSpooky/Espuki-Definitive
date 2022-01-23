@@ -43,23 +43,23 @@ private alias MatchScores = SumType! (MatchType [], NoMatch);
 
 MatchScores score (T)(in T toMatch, in Rule rule) {
   if (toMatch.length < rule.params.length) {
-    return MatchScores (MaybeMatch (NoMatch ()));
+    return MatchScores (NoMatch ());
   }
   auto matchScores = new MatchType [rule.params.length];
   auto toRet = MatchScores(matchScores);
   foreach (i, param; rule.params) {
     auto matchType = param.match!(
       (TypeId type) {
-        return type == toMatch [i].type ? exactTypeMatch : noMatch;
+        return type == toMatch [i].type ? MatchType.exactTypeMatch : MatchType.noMatch;
         // TODO: Parent type match.
       },
-      (Value val) {
+      (const Value val) {
         // Exact value.
-        return val == param ? exactValueMatch : noMatch;
+        return toMatch[i] == val ? MatchType.exactValueMatch : MatchType.noMatch;
       }
     );
-    if (matchType == noMatch) {
-      return MatchScores (MaybeMatch (NoMatch ()));
+    if (matchType == MatchType.noMatch) {
+      return MatchScores (NoMatch ());
     }
     matchScores [i] = matchType;
   }
@@ -70,6 +70,10 @@ struct RuleMatcher {
   Value match (T)(T toMatch, Rule [] rules) if (is (typeof(toMatch.front) == Value)) {
     import std.stdio;
     writeln (`DEB: Matching `, toMatch);
+    writeln (`DEB: With rules: `, rules);
+    foreach (rule; rules) {
+      writeln ("Rule match score:", rule, " ", score (toMatch, rule));
+    }
     
     // TODO: Delete
     import type : I64;
