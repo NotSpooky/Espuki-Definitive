@@ -3,7 +3,7 @@ module value;
 import std.sumtype;
 import std.conv : to;
 import rule;
-import type : TypeId, NamedType, globalTypeInfo, Kind;
+import type;
 
 struct StructType {
   size_t [TypeId] offsets;
@@ -53,13 +53,15 @@ struct VarWrapper {
   }
 }
 
+alias ValueContent = SumType! (VarWrapper, CompiledValue);
+
 struct Value {
   TypeId type;
-  SumType! (VarWrapper, CompiledValue) value;
+  ValueContent value;
   
   this (TypeId type, Var value) {
     this.type = type;
-    this.value = SumType! (VarWrapper, CompiledValue) (VarWrapper (value));
+    this.value = ValueContent (VarWrapper (value));
   }
   @disable this ();
 
@@ -112,4 +114,8 @@ struct Value {
       }
     );
   }
+}
+
+Value asSymbol (string symbol) {
+  return Value (Symbol, Var (symbol));
 }

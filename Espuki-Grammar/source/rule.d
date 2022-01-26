@@ -23,6 +23,10 @@ struct Rule {
   @disable this ();
   RuleParam [] params;
   ApplyFun applyFun;
+  this (RuleParam [] params, ApplyFun applyFun) {
+    this.params = params;
+    this.applyFun = applyFun;
+  }
 }
 
 struct NoMatch {}
@@ -46,9 +50,8 @@ MatchScores score (T)(in T toMatch, in Rule rule) {
     return MatchScores (NoMatch ());
   }
   auto matchScores = new MatchType [rule.params.length];
-  auto toRet = MatchScores(matchScores);
   foreach (i, param; rule.params) {
-    auto matchType = param.match!(
+    auto elementScore = param.match!(
       (TypeId type) {
         return type == toMatch [i].type ? MatchType.exactTypeMatch : MatchType.noMatch;
         // TODO: Parent type match.
@@ -58,12 +61,12 @@ MatchScores score (T)(in T toMatch, in Rule rule) {
         return toMatch[i] == val ? MatchType.exactValueMatch : MatchType.noMatch;
       }
     );
-    if (matchType == MatchType.noMatch) {
+    if (elementScore == MatchType.noMatch) {
       return MatchScores (NoMatch ());
     }
-    matchScores [i] = matchType;
+    matchScores [i] = elementScore;
   }
-  return toRet;
+  return MatchScores(matchScores);
 }
 
 struct RuleMatcher {
@@ -71,8 +74,15 @@ struct RuleMatcher {
     import std.stdio;
     writeln (`DEB: Matching `, toMatch);
     writeln (`DEB: With rules: `, rules);
-    foreach (rule; rules) {
-      writeln ("Rule match score:", rule, " ", score (toMatch, rule));
+    auto matchedRules = rules
+      .map!(rule => score(toMatch, rule))
+      .filter!(score => score.match! ((MatchType []) => true, (NoMatch) => false));
+    if (matchedRules.empty) {
+      import std.conv : to;
+      throw new Exception (`No rules match ` ~ toMatch.to!string);
+    }
+    foreach (matchedRule; matchedRules) {
+      writeln (`Rule match score: `, matchedRule);
     }
     
     // TODO: Delete

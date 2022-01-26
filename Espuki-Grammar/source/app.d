@@ -10,9 +10,10 @@ import pegged.grammar;
 import pegged.tohtml; // Useful for debugging.
 import pegString = pegged.examples.strings;
 import pegged.examples.numbers;
-import value;
-import type;
+import intrinsics;
 import rule;
+import type;
+import value;
 
 void main () {
   // TODO: Spacing.
@@ -70,7 +71,7 @@ void main () {
   //toHTML(parseTree, File(`spooks.html`, `w`));
   auto decimatedTree = Program.decimateTree (parseTree);
   writeln (decimatedTree);
-  writeln (parseProgram (decimatedTree, ruleMatcher, []));
+  writeln (parseProgram (decimatedTree, ruleMatcher, globalRules));
 }
 
 Value parseProgram (ParseTree pt, RuleMatcher ruleMatcher, Rule [] rules) {
