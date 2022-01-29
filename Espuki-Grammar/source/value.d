@@ -119,3 +119,13 @@ struct Value {
 Value asSymbol (string symbol) {
   return Value (Symbol, Var (symbol));
 }
+
+struct Mapping {
+  Value source;
+  Value destination;
+}
+
+Value toEspuki (Mapping mapping) {
+  auto outType = mapping.source.type.MappingTo (mapping.destination.type);
+  return Value (outType, Var([mapping.source, mapping.destination]));
+}

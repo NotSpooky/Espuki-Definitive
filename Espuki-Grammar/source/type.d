@@ -159,10 +159,18 @@ struct ParametrizedKind {
 }
 
 ParametrizedKind ArrayKind;
+// For `a to b` expressions.
+ParametrizedKind MappingKind;
 
 auto ArrayOf (TypeId type) {
   // TODO: Check size.
-  return ArrayKind.instance ([Value (Kind, Var(type))]);
+  return ArrayKind.instance ([Value (Kind, Var (type))]);
+}
+
+auto MappingTo (TypeId sourceType, TypeId destType) {
+  return MappingKind.instance ([
+    Value (Kind, Var (sourceType)), Value (Kind, Var (destType))
+  ]);
 }
 
 shared static this () {
@@ -187,5 +195,6 @@ shared static this () {
   implicitConversions [I8] = TypeImplicitConversions ([I16]);
 
   // Intrinsic parametrized types:
-  ArrayKind = ParametrizedKind("Array", [Kind]);
+  ArrayKind = ParametrizedKind ("Array", [Kind]);
+  MappingKind = ParametrizedKind ("Mapping", [Kind, Kind]);
 }

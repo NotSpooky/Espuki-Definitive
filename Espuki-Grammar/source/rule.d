@@ -6,26 +6,29 @@ import std.sumtype;
 import std.typecons : Nullable;
 import value : Value;
 import type : TypeId;
+import scopes;
 
 // Used for rule declarations.
 alias RuleParam = SumType! (TypeId, Value);
-// Parsed text is converted to RuleArgs to match with RuleParams.
-alias RuleArg = SumType! (TypeId, Value);
 
 alias ApplyFun = Value delegate (
   in Value [] inputs
   , in Value [] underscoreArgs
   , ref RuleMatcher ruleMatcher
-  , ref ValueScope valueScope
+  // , ref ValueScope valueScope
 );
 
 struct Rule {
   @disable this ();
   RuleParam [] params;
-  ApplyFun applyFun;
+  private ApplyFun applyFun;
   this (RuleParam [] params, ApplyFun applyFun) {
     this.params = params;
     this.applyFun = applyFun;
+  }
+  // ONLY use if the rule matches.
+  auto apply (Value [] args, Value [] underscoreArgs, ref RuleMatcher ruleMatcher) {
+    return this.applyFun (args [0 .. this.params.length], underscoreArgs, ruleMatcher);
   }
 }
 
@@ -43,9 +46,13 @@ enum MatchType {
   , noMatch
 }
 
-private alias MatchScores = SumType! (MatchType [], NoMatch);
+private struct Scores {
+  MatchType [] scores;
+  Rule * rule;
+}
+private alias MatchScores = SumType! (Scores, NoMatch);
 
-MatchScores score (T)(in T toMatch, in Rule rule) {
+MatchScores score (T)(in T toMatch, ref Rule rule) {
   if (toMatch.length < rule.params.length) {
     return MatchScores (NoMatch ());
   }
@@ -66,34 +73,41 @@ MatchScores score (T)(in T toMatch, in Rule rule) {
     }
     matchScores [i] = elementScore;
   }
-  return MatchScores(matchScores);
+  return MatchScores (Scores (matchScores, &rule));
 }
 
 struct RuleMatcher {
-  Value match (T)(T toMatch, Rule [] rules) if (is (typeof(toMatch.front) == Value)) {
+  Rule * match (T)(T toMatch, Rule [] rules) if (is (typeof(toMatch.front) == Value)) {
     import std.stdio;
     writeln (`DEB: Matching `, toMatch);
     writeln (`DEB: With rules: `, rules);
     auto matchedRules = rules
-      .map!(rule => score(toMatch, rule))
-      .filter!(score => score.match! ((MatchType []) => true, (NoMatch) => false));
+      .map!(rule => score (toMatch, rule));
+      //.filter!(score => score.match! ((Scores) => true, (NoMatch) => false))
+      //.map!(score => score.tryMatch! ((Scores a) => a))
+      //.tee!(score => assert (score.length > 0, `Got an empty score list`))
+      //.array;
+    /*
     if (matchedRules.empty) {
       import std.conv : to;
       throw new Exception (`No rules match ` ~ toMatch.to!string);
     }
-    foreach (matchedRule; matchedRules) {
-      writeln (`Rule match score: `, matchedRule);
+    auto firstPossibleMatch = matchedRules.front;
+    if (matchedRules.length == 1) {
+      return firstPossibleMatch.rule;
+    }
+    bool [size_t] bestMatchPositions;
+    size_t [] bestPositionsOfThisPos;
+    foreach (i; 0 .. firstPossibleMatch.length) {
+      
     }
     
     // TODO: Delete
     import type : I64;
     import value : Var;
     return Value (I64, Var(777));
+    */
+    writeln (`DEB: Returning first rule as DEBUG`);
+    return & rules [0];
   }
-}
-
-// TODO: Move to scope
-struct ValueScope {
-  Nullable!(ValueScope *) parent;
-  private Value [string] values;
 }

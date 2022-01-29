@@ -74,7 +74,7 @@ void main () {
   writeln (parseProgram (decimatedTree, ruleMatcher, globalRules));
 }
 
-Value parseProgram (ParseTree pt, RuleMatcher ruleMatcher, Rule [] rules) {
+Value parseProgram (ParseTree pt, ref RuleMatcher ruleMatcher, Rule [] rules) {
   switch (pt.name) {
     case `Program.Program`:
       assert (pt.children.length == 1);
@@ -91,7 +91,9 @@ Value parseProgram (ParseTree pt, RuleMatcher ruleMatcher, Rule [] rules) {
         })
         .map! (child => parseProgram (child [0], ruleMatcher, rules))
         .array ();
-      return ruleMatcher.match (toRet, rules);
+      return ruleMatcher.match (toRet, rules).apply (
+        toRet, [], ruleMatcher
+      );
     case `Program.Expression`:
       assert (pt.children.length == 1);
       return parseProgram (pt[0], ruleMatcher, rules);

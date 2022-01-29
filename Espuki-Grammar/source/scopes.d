@@ -1,4 +1,5 @@
 module scopes;
+// Not named 'scope' as that's an identifier.
 
 ValueScope globalScope;
 
