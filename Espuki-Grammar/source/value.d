@@ -69,6 +69,15 @@ struct Value {
     return type.hashOf () + value.match! (a => a.toHash(), a => a.hashOf ());
   }
 
+  // Use only if the value is interpreted.
+  Var extractVar () inout {
+    return this.value.tryMatch! ((VarWrapper v) => v.var);
+  }
+
+  private string valueToString (TypeId elementType, Var var) const {
+      return Value (elementType, var).to!string;
+  }
+
   void toString (
     scope void delegate (const (char)[]) sink
   ) const {
@@ -80,14 +89,25 @@ struct Value {
         sink (` `);
         interpretedVal.var.match! (
           (const Var [] v) {
-            sink (`[`);
-            sink (
-              v
-                .map! (b => b.to!string ())
-                .joiner (`, `)
-                .to!string
-            );
-            sink (`]`);
+            if (isParametrizedFrom (type, MappingKind)) {
+              import std.stdio;
+              sink (v [0].to!string);
+              sink (` to `);
+              sink (v [1].to!string);
+            } else {
+              sink (`[`);
+              TypeId elementType = Any;
+              if (isParametrizedFrom (type, ArrayKind)) {
+                elementType = arrayElementType (type);
+              }
+              sink (
+                v
+                  .map! (b => valueToString (elementType, b))
+                  .joiner (`, `)
+                  .to!string
+              );
+              sink (`]`);
+            }
           }, (string v) {
             sink (v);
           }, (const Value [] v) {
@@ -127,5 +147,5 @@ struct Mapping {
 
 Value toEspuki (Mapping mapping) {
   auto outType = mapping.source.type.MappingTo (mapping.destination.type);
-  return Value (outType, Var([mapping.source, mapping.destination]));
+  return Value (outType, Var([mapping.source.extractVar (), mapping.destination.extractVar ()]));
 }

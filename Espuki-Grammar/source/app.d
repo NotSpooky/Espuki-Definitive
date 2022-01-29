@@ -123,13 +123,10 @@ Value parseProgram (ParseTree pt, ref RuleMatcher ruleMatcher, Rule [] rules) {
           ArrayOf(parsedTree [0].type),
           // TODO: Store as an array of Var instead of arrays of values
           // To do so, the D type must be extracted from the Values
-          Var (parsedTree.map!(a =>
-            a.value.tryMatch!((VarWrapper a) => a.var)
-          ).array)
+          Var (parsedTree.map!(a => a.extractVar ()).array)
         );
       }
     case `Program.Symbol`:
-      writeln (`Got symbol: `, pt);
       return Value (Symbol, Var (pt.matches [0]));
     default:
       writeln (`> TODO: `, pt.name);

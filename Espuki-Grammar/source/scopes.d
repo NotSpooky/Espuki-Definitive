@@ -11,6 +11,8 @@ import type : TypeId, globalTypeInfo, TypeInfo_;
 struct ValueScope {
   Nullable!(ValueScope *) parent;
   private Value [string] values;
+  // Shouldn't the functions at type.d be used instead?
+  /+
   TypeId addType (string identifier/*, size_t size*/) {
     Nullable!TypeId toRet;
     this.values.require (
@@ -27,7 +29,7 @@ struct ValueScope {
       ,`Type ` ~ identifier ~ ` already exists in the scope`
     );
     return toRet.get ();
-  }
+  }+/
 
   Nullable!Value find (string name) {
     auto pNullable = nullable (&this);

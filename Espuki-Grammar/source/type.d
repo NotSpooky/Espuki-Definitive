@@ -57,29 +57,17 @@ struct NamedType {
   TypeId type;
 }
 
-// Can be directly instanced for primitive types.
-class TypeInfo_ {
-  //const size_t size;
-  string name;
-  this (/*size_t size,*/ string name) {
-    //this.size = size;
-    this.name = name;
-  }
-  override string toString () {
-    return name;
-  }
-}
-
-private int lastTypeId = 0;
 private TypeId addPrimitive (string name) {
   // As of now, all variables will be stored on a Var, so that'll be the size.
   // return globalScope.addType (name, Var.sizeof);
   import value : Var;
-  globalTypeInfo ~= new TypeInfo_ (/*Var.sizeof,*/ name);
-  return globalTypeInfo.length - 1;
+  auto thisId = globalTypeInfo.length;
+  globalTypeInfo [thisId] = new TypeInfo_ (/*Var.sizeof,*/ name);
+  return thisId;
 }
 
 // Initialized on module constructor.
+TypeId Any;    // Contains whatever.
 TypeId Kind;   // A Type of Type.
 TypeId Symbol; // A single word in the program, can be resolved as an identifier.
                // Can also be matched as-is.
@@ -94,14 +82,24 @@ TypeId F64;
 TypeId TupleT;
 TypeId EmptyArray;
 
-TypeInfo_ [] globalTypeInfo;
+// Can be directly instanced for primitive types.
+class TypeInfo_ {
+  //const size_t size;
+  string name;
+  this (/*size_t size,*/ string name) {
+    //this.size = size;
+    this.name = name;
+  }
+  override string toString () {
+    return name;
+  }
+}
 
 private class ParametrizedTypeInfo : TypeInfo_ {
   const ParametrizedKind * kind;
   const Value [] args;
   this (ParametrizedKind * kind, const Value [] args /*, size_t size */) {
     assert (kind !is null);
-    import std.stdio;
     string name = kind.baseName ~ ` (` ~
       args.map! (a => a.to!string)
         .joiner (`, `)
@@ -110,6 +108,17 @@ private class ParametrizedTypeInfo : TypeInfo_ {
     super (/*size,*/ name);
     this.kind = kind;
     this.args = args;
+  }
+}
+
+TypeInfo_ [TypeId] globalTypeInfo;
+
+bool isParametrizedFrom (TypeId type, in ParametrizedKind kind) {
+  auto typeInfo = globalTypeInfo [type];
+  if (auto asParametrized = (cast (ParametrizedTypeInfo) typeInfo)) {
+    return * asParametrized.kind == kind;
+  } else {
+    return false;
   }
 }
 
@@ -123,6 +132,7 @@ struct ParametrizedKind {
     this.argTypes = argTypes;
   }
 
+  // Version that adds a custom TypeInfo for this type.
   TypeId instance (const Value [] args, TypeInfo_ delegate () createTypeInfo) {
     // First check whether this has already been instanced.
     auto inInstances = args in instances;
@@ -132,12 +142,13 @@ struct ParametrizedKind {
     } else {
       // No, create the new instance.
       const toRet = globalTypeInfo.length;
-      globalTypeInfo ~= createTypeInfo ();
-      instances [args] = toRet;
+      globalTypeInfo [toRet] = createTypeInfo ();
+      this.instances [args] = toRet;
       return toRet;
     }
   }
 
+  // Basic version whose type info just includes the corresponding ParametrizedKind
   TypeId instance (const Value [] args /*, size_t size*/) {
     // Args should have the Kind's expected types.
     if (
@@ -146,7 +157,7 @@ struct ParametrizedKind {
     ) {
       // Types match.
       return instance (args, () => new ParametrizedTypeInfo (
-        &this
+        & this
         , args
         /*, size //args.map! (a => globalTypeInfo [a.value.get!TypeId].size).sum*/
       ));
@@ -167,6 +178,13 @@ auto ArrayOf (TypeId type) {
   return ArrayKind.instance ([Value (Kind, Var (type))]);
 }
 
+TypeId arrayElementType (TypeId arrayType) {
+  // Type must be an array.
+  auto elementType = (cast (ParametrizedTypeInfo) globalTypeInfo [arrayType]).args [0];
+  assert (elementType.type == Kind);
+  return elementType.extractVar ().tryMatch! ((size_t t) => t);
+}
+
 auto MappingTo (TypeId sourceType, TypeId destType) {
   return MappingKind.instance ([
     Value (Kind, Var (sourceType)), Value (Kind, Var (destType))
@@ -175,6 +193,7 @@ auto MappingTo (TypeId sourceType, TypeId destType) {
 
 shared static this () {
   // Primitives:
+  Any = addPrimitive (`Any`);
   Kind = addPrimitive (`Kind`);
   Symbol = addPrimitive (`Symbol`);
   String = addPrimitive (`String`);
