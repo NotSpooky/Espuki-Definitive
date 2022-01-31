@@ -120,7 +120,7 @@ Value parseProgram (ParseTree pt, ref RuleMatcher ruleMatcher, Rule [] rules) {
       } else {
         auto varToRet = new Var [parsedTree.length];
         return Value (
-          ArrayOf(parsedTree [0].type),
+          arrayOf(parsedTree [0].type),
           // TODO: Store as an array of Var instead of arrays of values
           // To do so, the D type must be extracted from the Values
           Var (parsedTree.map!(a => a.extractVar ()).array)

@@ -172,10 +172,17 @@ struct ParametrizedKind {
 ParametrizedKind ArrayKind;
 // For `a to b` expressions.
 ParametrizedKind MappingKind;
+ParametrizedKind AAKind;
 
-auto ArrayOf (TypeId type) {
+auto arrayOf (TypeId type) {
   // TODO: Check size.
   return ArrayKind.instance ([Value (Kind, Var (type))]);
+}
+
+auto associativeArrayOf (TypeId keyType, TypeId valueType) {
+  return AAKind.instance (
+    [Value (Kind, Var (keyType)), Value (Kind, Var (valueType))]
+  );
 }
 
 TypeId arrayElementType (TypeId arrayType) {
@@ -183,6 +190,18 @@ TypeId arrayElementType (TypeId arrayType) {
   auto elementType = (cast (ParametrizedTypeInfo) globalTypeInfo [arrayType]).args [0];
   assert (elementType.type == Kind);
   return elementType.extractVar ().tryMatch! ((size_t t) => t);
+}
+
+TypeId [2] mappingElementTypes (TypeId mappingType) {
+  // Type must be a mapping.
+  auto mappingArgs = (cast (ParametrizedTypeInfo) globalTypeInfo [mappingType]).args;
+  assert (mappingArgs.length == 2);
+  assert (mappingArgs [0].type == Kind);
+  assert (mappingArgs [1].type == Kind);
+  return [
+    mappingArgs [0].extractVar ().tryMatch! ((TypeId t) => t),
+    mappingArgs [1].extractVar ().tryMatch! ((TypeId t) => t)
+  ];
 }
 
 auto MappingTo (TypeId sourceType, TypeId destType) {
@@ -216,4 +235,5 @@ shared static this () {
   // Intrinsic parametrized types:
   ArrayKind = ParametrizedKind ("Array", [Kind]);
   MappingKind = ParametrizedKind ("Mapping", [Kind, Kind]);
+  AAKind = ParametrizedKind ("AssociativeArray", [Kind, Kind]);
 }
