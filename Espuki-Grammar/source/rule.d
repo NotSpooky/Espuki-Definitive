@@ -135,7 +135,7 @@ struct RuleMatcher {
     }
 
     // Prune on each subsequent position the matches that aren't the best ones.
-    foreach (i; 0 .. matchedRules.front.scores.length) {
+    foreach (i; 1 .. matchedRules.front.scores.length) {
       size_t [] bestOfThisIndex = bestOfIndex (i, matchedRules);
       assert (bestOfThisIndex.length > 0);
       foreach (bestOfThisPos; bestOfThisIndex) {
@@ -152,16 +152,28 @@ struct RuleMatcher {
       size_t toRet = matchedRules [bestMatchesInAllPositions [0]].rulePos;
       return toRet;
     }
+
+    auto rulesInBestMatches () {
+      return matchedRules
+        .indexed (bestMatchesInAllPositions)
+        .map! (m => rules [m.rulePos]);
+    }
+
     if (matchedRules.length > 1) {
       throw new Exception (text (
-        `Multiple rules match `, toMatch, `: `, matchedRules
-          .indexed (bestMatchesInAllPositions)
-          .map! (m => rules [m.rulePos])
+        `Multiple rules match `, toMatch, `: `, rulesInBestMatches ()
       ));
     } else {
+      bestMatchPositions.clear;
+
+      foreach (i; 0 .. matchedRules.front.scores.length) {
+        foreach (bestOfThisIndexPos; bestOfIndex (i, matchedRules)) {
+          bestMatchPositions [bestOfThisIndexPos] = true;
+        }
+      }
       // There's an ambiguity. Get the rules with best matches.
       throw new Exception (text (
-        `Ambiguity choosing rules `
+        `Ambiguity choosing between rules: `, rulesInBestMatches ()
       ));
     }
   }
