@@ -115,7 +115,7 @@ struct RuleMatcher {
     // TODO: Get only the longest matches
     auto matchedRules = rules
       .enumerate
-      .map!(rule => score (toMatch, rule [1], rule [0]))
+      .map! (rule => score (toMatch, rule [1], rule [0]))
       .filter!(score => score.match! ((Scores s) => true, (NoMatch s) => false))
       .map!(score => score.tryMatch! ((Scores a) => a))
       .tee!(score => assert (score.scores.length > 0, `Got an empty score list`))

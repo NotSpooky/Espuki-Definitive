@@ -25,10 +25,11 @@ Value createAA (
   , in Value [] underscoreArgs
   , ref RuleMatcher ruleMatcher
 ) {
-  assert (inputs.length == 2);
-  TypeId typeMapping = arrayElementType (inputs [1].type);
+  assert (inputs.length == 3);
+  TypeId typeMapping = arrayElementType (inputs [0].type);
   TypeId [2] mappingTypes = mappingElementTypes (typeMapping);
   void * [void *] toRet;
+  assert (0, `TODO: Fill AA`);
   // TODO: Fill with inputs.
   return toEspuki (toRet, mappingTypes [0], mappingTypes [1]);
 }
@@ -40,7 +41,7 @@ shared static this () {
     , toDelegate (&espukiToFun)
   );
   auto createAAR = Rule (
-    [RuleParam(asSymbol (`aa`)), RuleParam(asSymbol (`of`)), RuleParam(MappingTo (String, String))]
+    [RuleParam(MappingTo (String, String)), RuleParam (`as`.asSymbol), RuleParam (`aa`.asSymbol)]
     , toDelegate (&createAA)
   );
   globalRules = [espukiTo, createAAR];

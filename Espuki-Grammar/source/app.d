@@ -60,7 +60,7 @@ void main () {
     //`"Sleep"->honk;`
     //`5.010;`
     //`10;`
-    `["hello" to "goodbye", "thank you" to "you're welcome"];`
+    `["hello" to "goodbye", "thank you" to "you're welcome"] as aa;`
     // TODO from here:
     //`"Olis""Sleeps";`
     //`((5, 10, 10.5, "Hello") "World" ("World2",) ("LastOne"));`
