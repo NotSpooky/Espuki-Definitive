@@ -92,7 +92,7 @@ struct Value {
             if (isParametrizedFrom (type, MappingKind)) {
               import std.stdio;
               sink (v [0].to!string);
-              sink (` to `);
+              sink (` -> `);
               sink (v [1].to!string);
             } else {
               sink (`[`);

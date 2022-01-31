@@ -91,7 +91,7 @@ Value parseProgram (ParseTree pt, ref RuleMatcher ruleMatcher, Rule [] rules) {
         })
         .map! (child => parseProgram (child [0], ruleMatcher, rules))
         .array ();
-      return ruleMatcher.match (toRet, rules).apply (
+      return rules [ruleMatcher.match (toRet, rules)].applyRule (
         toRet, [], ruleMatcher
       );
     case `Program.Expression`:

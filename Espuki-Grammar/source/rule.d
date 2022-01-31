@@ -27,8 +27,14 @@ struct Rule {
     this.applyFun = applyFun;
   }
   // ONLY use if the rule matches.
-  auto apply (Value [] args, Value [] underscoreArgs, ref RuleMatcher ruleMatcher) {
-    return this.applyFun (args [0 .. this.params.length], underscoreArgs, ruleMatcher);
+  auto applyRule (Value [] args, Value [] underscoreArgs, ref RuleMatcher ruleMatcher) {
+    debug (2) {
+      // TODO: Take into account underscoreArgs
+      assert (score (args, this).match! ((Scores s) => true, (NoMatch nm) => false));
+    }
+    size_t pLen = this.params.length;
+    assert (pLen <= args.length);
+    return this.applyFun (args [0 .. pLen], underscoreArgs, ruleMatcher);
   }
 }
 
@@ -48,11 +54,15 @@ enum MatchType {
 
 private struct Scores {
   MatchType [] scores;
-  Rule * rule;
+  size_t rulePos;
 }
 private alias MatchScores = SumType! (Scores, NoMatch);
 
-MatchScores score (T)(in T toMatch, ref Rule rule) {
+/// Takes a list of values to match against the rule.
+/// Returns a wrapped list (Scores) that corresponds to how good the match was 
+/// at each position.
+/// If the rule doesn't match, a NoMatch is returned instead.
+MatchScores score (in Value [] toMatch, in Rule rule, size_t rulePos) {
   if (toMatch.length < rule.params.length) {
     return MatchScores (NoMatch ());
   }
@@ -73,41 +83,86 @@ MatchScores score (T)(in T toMatch, ref Rule rule) {
     }
     matchScores [i] = elementScore;
   }
-  return MatchScores (Scores (matchScores, &rule));
+  return MatchScores (Scores (matchScores, rulePos));
+}
+
+/// Returns a list containing the best matches for the input at the position 'index'.
+private size_t [] bestOfIndex (size_t index, Scores [] matchedRules) {
+  size_t [] bestOfThisIndex;
+  MatchType currentBestMatchType = MatchType.parentTypeMatch;
+  foreach (m, matchedRule; matchedRules) {
+    auto matchScore = matchedRule.scores [index];
+    if (matchScore < currentBestMatchType) {
+      bestOfThisIndex = [m];
+    } else if (matchScore == currentBestMatchType) {
+      bestOfThisIndex ~= m;
+    }
+  }
+  return bestOfThisIndex;
 }
 
 struct RuleMatcher {
-  Rule * match (T)(T toMatch, Rule [] rules) if (is (typeof(toMatch.front) == Value)) {
+  /// A rule must be the best match in all positions to be the best.
+  /// If some rule has the best match in a position but not in another, it's
+  /// ambiguous which one to use so an error is returned.
+  /// Returns the position in the rules that corresponds to the best matching one.
+  size_t match (Value [] toMatch, ref Rule [] rules) {
+    assert (rules.length > 0, `No rules to match`);
+
     import std.stdio;
     writeln (`DEB: Matching `, toMatch);
     writeln (`DEB: With rules: `, rules);
+    // TODO: Get only the longest matches
     auto matchedRules = rules
-      .map!(rule => score (toMatch, rule));
-      //.filter!(score => score.match! ((Scores) => true, (NoMatch) => false))
-      //.map!(score => score.tryMatch! ((Scores a) => a))
-      //.tee!(score => assert (score.length > 0, `Got an empty score list`))
-      //.array;
-    /*
+      .enumerate
+      .map!(rule => score (toMatch, rule [1], rule [0]))
+      .filter!(score => score.match! ((Scores s) => true, (NoMatch s) => false))
+      .map!(score => score.tryMatch! ((Scores a) => a))
+      .tee!(score => assert (score.scores.length > 0, `Got an empty score list`))
+      .array;
+
+    import std.conv : to, text;
     if (matchedRules.empty) {
-      import std.conv : to;
       throw new Exception (`No rules match ` ~ toMatch.to!string);
     }
-    auto firstPossibleMatch = matchedRules.front;
-    if (matchedRules.length == 1) {
-      return firstPossibleMatch.rule;
-    }
+    auto firstIndexBest = bestOfIndex (0, matchedRules);
+    assert (firstIndexBest.length > 0);
+    // Used as a set
     bool [size_t] bestMatchPositions;
-    size_t [] bestPositionsOfThisPos;
-    foreach (i; 0 .. firstPossibleMatch.length) {
-      
+    // Fill the set with the rules that are the best match at the first position.
+    foreach (bestOfFirst; firstIndexBest) {
+      bestMatchPositions [bestOfFirst] = true;
     }
-    
-    // TODO: Delete
-    import type : I64;
-    import value : Var;
-    return Value (I64, Var(777));
-    */
-    writeln (`DEB: Returning first rule as DEBUG`);
-    return & rules [0];
+
+    // Prune on each subsequent position the matches that aren't the best ones.
+    foreach (i; 0 .. matchedRules.front.scores.length) {
+      size_t [] bestOfThisIndex = bestOfIndex (i, matchedRules);
+      assert (bestOfThisIndex.length > 0);
+      foreach (bestOfThisPos; bestOfThisIndex) {
+        if (bestOfThisPos !in bestMatchPositions) {
+          bestMatchPositions.remove (bestOfThisPos);
+        }
+      }
+    }
+
+    auto bestMatchesInAllPositions = bestMatchPositions.byKey().array();
+    if (bestMatchesInAllPositions.length == 1) {
+      writeln (`DEB: Best rule position is `, bestMatchesInAllPositions [0]);
+      writeln (`DEB: Matching rules are `, matchedRules);
+      size_t toRet = matchedRules [bestMatchesInAllPositions [0]].rulePos;
+      return toRet;
+    }
+    if (matchedRules.length > 1) {
+      throw new Exception (text (
+        `Multiple rules match `, toMatch, `: `, matchedRules
+          .indexed (bestMatchesInAllPositions)
+          .map! (m => rules [m.rulePos])
+      ));
+    } else {
+      // There's an ambiguity. Get the rules with best matches.
+      throw new Exception (text (
+        `Ambiguity choosing rules `
+      ));
+    }
   }
 }
