@@ -5,11 +5,11 @@ import std.range;
 import std.sumtype;
 import std.typecons : Nullable;
 import value : Value;
-import type : TypeId;
+import type : isParametrizedFrom, ParametrizedKind, TypeId;
 import scopes;
 
 // Used for rule declarations.
-alias RuleParam = SumType! (TypeId, Value);
+alias RuleParam = SumType! (TypeId, Value, ParametrizedKind);
 
 alias ApplyFun = Value delegate (
   in Value [] inputs
@@ -42,12 +42,14 @@ struct NoMatch {}
 
 enum MatchType {
   // E.g. A rule has an 'I32 42' parameter and the argument matched is 'I32 42'.
-  exactValueMatch
+  exactValueAndTypeMatch
+  // E.g. A rule has an 'I32 42' parameter and the argument matched is 'I16 42'
+  , exactValueMatch
   // E.g. A rule has an 'I32' parameter and the argument matched is 'I32 42'.
-  // This also applies to matching typeclasses.
   , exactTypeMatch
   // E.g. A rule has an 'I64' parameter and the argument matched is 'I32 42'.
-  , parentTypeMatch
+  // This also applies to matching typeclasses.
+  , derivedTypeMatch
   // E.g. A rule has a 'Bool' parameter and the argument matched is 'I32 42'.
   , noMatch
 }
@@ -71,11 +73,14 @@ MatchScores score (in Value [] toMatch, in Rule rule, size_t rulePos) {
     auto elementScore = param.match!(
       (TypeId type) {
         return type == toMatch [i].type ? MatchType.exactTypeMatch : MatchType.noMatch;
-        // TODO: Parent type match.
+        // TODO: Derived type match.
       },
       (const Value val) {
         // Exact value.
-        return toMatch[i] == val ? MatchType.exactValueMatch : MatchType.noMatch;
+        return toMatch[i] == val ? MatchType.exactValueAndTypeMatch : MatchType.noMatch;
+      },
+      (const ParametrizedKind pKind) {
+        return toMatch[i].type.isParametrizedFrom (pKind) ? MatchType.derivedTypeMatch : MatchType.noMatch;
       }
     );
     if (elementScore == MatchType.noMatch) {
@@ -89,7 +94,7 @@ MatchScores score (in Value [] toMatch, in Rule rule, size_t rulePos) {
 /// Returns a list containing the best matches for the input at the position 'index'.
 private size_t [] bestOfIndex (size_t index, Scores [] matchedRules) {
   size_t [] bestOfThisIndex;
-  MatchType currentBestMatchType = MatchType.parentTypeMatch;
+  MatchType currentBestMatchType = MatchType.derivedTypeMatch;
   foreach (m, matchedRule; matchedRules) {
     auto matchScore = matchedRule.scores [index];
     if (matchScore < currentBestMatchType) {

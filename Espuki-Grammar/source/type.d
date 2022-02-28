@@ -4,11 +4,12 @@ import std.algorithm;
 import std.conv;
 import std.sumtype;
 import std.range;
+import std.typecons;
 import value;
 
 alias TypeId = size_t;
 
-struct TypeImplicitConversions {
+/+struct TypeImplicitConversions {
   TypeId [] moreGeneral;
 
   private auto visitT (TypeId type) const {
@@ -31,10 +32,13 @@ struct TypeImplicitConversions {
     }
     return toRet [];
   }
-}
+}+/
 
-TypeImplicitConversions [TypeId] implicitConversions;
+//TypeImplicitConversions [TypeId] implicitConversions;
 
+//[Tuple!(Value, `source`, Value, `target`)] 
+
+/+
 /// Includes itself and all the types this one can implicitly convert to.
 auto visitTypeConvs (TypeId type) {
   auto tInImplicit = type in implicitConversions;
@@ -44,12 +48,17 @@ auto visitTypeConvs (TypeId type) {
   return [type];
 }
 
++/
 /// As of now just handles type equality by id.
 bool isSubTypeOf (TypeId type, TypeId parent) {
   if (type == parent) {
     return true;
   }
-  return !type.visitTypeConvs.find (parent).empty;
+  debug (2) {
+    import std.stdio;
+    writeln (`TODO: isSubTypeOf`);
+  }
+  return false;
 }
 
 struct NamedType {
@@ -152,8 +161,9 @@ struct ParametrizedKind {
   TypeId instance (const Value [] args /*, size_t size*/) {
     // Args should have the Kind's expected types.
     if (
-      zip (StoppingPolicy.requireSameLength, args.map!`a.type`, argTypes)
-        .all! (a => a[0].isSubTypeOf (a[1]))
+      zip(StoppingPolicy.requireSameLength, args.map!`a.type`, argTypes)
+        .map! (a => a[0].isSubTypeOf (a[1]))
+        .all ()
     ) {
       // Types match.
       return instance (args, () => new ParametrizedTypeInfo (
@@ -226,11 +236,13 @@ shared static this () {
   TupleT = addPrimitive (`Tuple`);
   EmptyArray = addPrimitive (`EmptyArray`);
 
+  /+
   // Implicit conversions:
   implicitConversions [F32] = TypeImplicitConversions ([F64]);
   implicitConversions [I32] = TypeImplicitConversions ([F64, I64]);
   implicitConversions [I16] = TypeImplicitConversions ([F32, I32]);
   implicitConversions [I8] = TypeImplicitConversions ([I16]);
+  +/
 
   // Intrinsic parametrized types:
   ArrayKind = ParametrizedKind ("Array", [Kind]);

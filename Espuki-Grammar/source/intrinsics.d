@@ -31,7 +31,7 @@ Value createAA (
   void * [void *] toRet;
   assert (0, `TODO: Fill AA`);
   // TODO: Fill with inputs.
-  return toEspuki (toRet, mappingTypes [0], mappingTypes [1]);
+  // return toEspuki (toRet, mappingTypes [0], mappingTypes [1]);
 }
 
 shared static this () {
