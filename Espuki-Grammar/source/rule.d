@@ -87,13 +87,11 @@ MatchScores score (in Value [] toMatch, in Rule rule, size_t rulePos) {
       },
       (const ParametrizedKind * pKind) {
         import std.stdio;
-        writeln (`DEB: Comparing `, *pKind, ` with `, toMatch [i]);
         return toMatch [i].type.isParametrizedFrom (pKind) ? MatchType.derivedTypeMatch : MatchType.noMatch;
       }
     );
     if (elementScore == MatchType.noMatch) {
       import std.stdio;
-      writeln (`DEB: No match for `, param, ` with `, toMatch [i]);
       return MatchScores (NoMatch ());
     }
     matchScores [i] = elementScore;

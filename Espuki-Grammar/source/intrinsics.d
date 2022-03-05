@@ -1,6 +1,8 @@
 module intrinsics;
 
+import std.algorithm;
 import std.functional : toDelegate;
+import std.sumtype;
 import rule;
 import type;
 import scopes;
@@ -19,7 +21,6 @@ Value espukiToFun (
   return toEspuki (Mapping (inputs [0], inputs [2]));
 }
 
-// NOTE: Due to limitations with the hash of Vars, we use void* here.
 Value createAA (
   in Value [] inputs
   , in Value [] underscoreArgs
@@ -28,12 +29,19 @@ Value createAA (
   assert (inputs.length == 3);
   TypeId typeMapping = arrayElementType (inputs [0].type);
   TypeId [2] mappingTypes = mappingElementTypes (typeMapping);
-  import std.stdio;
-  writeln ("Creating an associative array with types ", mappingTypes);
-  void * [void *] toRet;
-  assert (0, `TODO: Fill AA`);
+  EspukiAA toRet;
+  
   // TODO: Fill with inputs.
+  auto asArray = inputs [0]
+    .extractVar ()
+    .tryMatch!((Var [] vars) => vars)
+    .map!(var => var.tryMatch!((Var [] mapping) => mapping));
   // return toEspuki (toRet, mappingTypes [0], mappingTypes [1]);
+  foreach (mapped; asArray) {
+    assert (mapped.length == 2);
+    toRet.val [mapped [0]] = mapped [1];
+  }
+  return toRet.toEspuki (mappingTypes [0], mappingTypes [1]);
 }
 
 shared static this () {

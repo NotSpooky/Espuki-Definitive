@@ -130,6 +130,18 @@ struct Value {
             } else {
               sink (v.to!string);
             }
+          }, (EspukiAA aa) {
+            sink (`[`);
+            /+sink (
+              aa
+                .val
+                //.byKey
+                .map! (pair => pair.key.to!string ~ ` to ` ~ pair.value.to!string)
+                //.joiner (`, `)
+                .to!string
+            );+/
+            sink (`... values ...`);
+            sink (`]`);
           }, (v) {
             sink (v.to!string);
           }

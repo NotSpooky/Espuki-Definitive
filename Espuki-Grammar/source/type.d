@@ -126,9 +126,6 @@ ParametrizedKind [] globalParametrizedKinds;
 bool isParametrizedFrom (TypeId type, in ParametrizedKind * kind) {
   auto typeInfo = globalTypeInfo [type];
   if (auto asParametrized = (cast (ParametrizedTypeInfo) typeInfo)) {
-    import std.stdio;
-    writeln (`DEB: As parametrized kind is `, asParametrized.kind);
-    writeln (`DEB: Being compared to  `, * kind);
     return asParametrized.kind.id == kind.id;
   } else {
     return false;
