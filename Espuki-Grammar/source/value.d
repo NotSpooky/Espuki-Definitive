@@ -27,8 +27,12 @@ alias Var = SumType! (
   , typeof (null)
   , Expression [] * /* Was Expressions */
   , StructType
-  , void * [void *]
+  , EspukiAA
 );
+
+struct EspukiAA {
+  Var [Var] val;
+}
 
 // Note: Verbose name because TypeId == long.
 Value typeToValue (TypeId type) {
@@ -153,6 +157,6 @@ Value toEspuki (Mapping mapping) {
   );
 }
 
-Value toEspuki (void * [void *] aa, TypeId keyType, TypeId valueType) {
+Value toEspuki (EspukiAA aa, TypeId keyType, TypeId valueType) {
   return Value (associativeArrayOf (keyType, valueType), Var (aa));
 }

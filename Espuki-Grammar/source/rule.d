@@ -5,11 +5,11 @@ import std.range;
 import std.sumtype;
 import std.typecons : Nullable;
 import value : Value;
-import type : isParametrizedFrom, ParametrizedKind, TypeId;
+import type;
 import scopes;
 
 // Used for rule declarations.
-alias RuleParam = SumType! (TypeId, Value, ParametrizedKind);
+alias RuleParam = SumType! (TypeId, Value, ParametrizedKind *);
 
 alias ApplyFun = Value delegate (
   in Value [] inputs
@@ -34,7 +34,8 @@ struct Rule {
     }
     size_t pLen = this.params.length;
     assert (pLen <= args.length);
-    return this.applyFun (args [0 .. pLen], underscoreArgs, ruleMatcher);
+    import std.typecons : tuple;
+    return tuple (this.applyFun (args [0 .. pLen], underscoreArgs, ruleMatcher), pLen);
   }
 }
 
@@ -43,13 +44,15 @@ struct NoMatch {}
 enum MatchType {
   // E.g. A rule has an 'I32 42' parameter and the argument matched is 'I32 42'.
   exactValueAndTypeMatch
-  // E.g. A rule has an 'I32 42' parameter and the argument matched is 'I16 42'
+  // E.g. A rule has an 'I64 42' parameter and the argument matched is 'I32 42'
   , exactValueMatch
   // E.g. A rule has an 'I32' parameter and the argument matched is 'I32 42'.
   , exactTypeMatch
   // E.g. A rule has an 'I64' parameter and the argument matched is 'I32 42'.
   // This also applies to matching typeclasses.
   , derivedTypeMatch
+  // E.g. A rule as an 'Any' parameter and the argument matches is 'I32 42'.
+  , anyTypeMatch
   // E.g. A rule has a 'Bool' parameter and the argument matched is 'I32 42'.
   , noMatch
 }
@@ -72,6 +75,9 @@ MatchScores score (in Value [] toMatch, in Rule rule, size_t rulePos) {
   foreach (i, param; rule.params) {
     auto elementScore = param.match!(
       (TypeId type) {
+        if (type == Any) {
+          return MatchType.anyTypeMatch;
+        }
         return type == toMatch [i].type ? MatchType.exactTypeMatch : MatchType.noMatch;
         // TODO: Derived type match.
       },
@@ -79,11 +85,15 @@ MatchScores score (in Value [] toMatch, in Rule rule, size_t rulePos) {
         // Exact value.
         return toMatch[i] == val ? MatchType.exactValueAndTypeMatch : MatchType.noMatch;
       },
-      (const ParametrizedKind pKind) {
-        return toMatch[i].type.isParametrizedFrom (pKind) ? MatchType.derivedTypeMatch : MatchType.noMatch;
+      (const ParametrizedKind * pKind) {
+        import std.stdio;
+        writeln (`DEB: Comparing `, *pKind, ` with `, toMatch [i]);
+        return toMatch [i].type.isParametrizedFrom (pKind) ? MatchType.derivedTypeMatch : MatchType.noMatch;
       }
     );
     if (elementScore == MatchType.noMatch) {
+      import std.stdio;
+      writeln (`DEB: No match for `, param, ` with `, toMatch [i]);
       return MatchScores (NoMatch ());
     }
     matchScores [i] = elementScore;
@@ -153,7 +163,6 @@ struct RuleMatcher {
     auto bestMatchesInAllPositions = bestMatchPositions.byKey().array();
     if (bestMatchesInAllPositions.length == 1) {
       writeln (`DEB: Best rule position is `, bestMatchesInAllPositions [0]);
-      writeln (`DEB: Matching rules are `, matchedRules);
       size_t toRet = matchedRules [bestMatchesInAllPositions [0]].rulePos;
       return toRet;
     }

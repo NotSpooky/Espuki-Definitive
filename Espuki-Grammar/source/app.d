@@ -67,7 +67,7 @@ void main () {
     //`(_2 _3);`
     //`{5.1 /* Sleep :3 */ _34}; /+ Hello +/`
     ;
-  auto parseTree = Program.Expression(toParse);
+  auto parseTree = Program.Expressions(toParse);
   //toHTML(parseTree, File(`spooks.html`, `w`));
   auto decimatedTree = Program.decimateTree (parseTree);
   writeln (decimatedTree);
@@ -84,16 +84,28 @@ Value parseProgram (ParseTree pt, ref RuleMatcher ruleMatcher, Rule [] rules) {
         .children
         .tee !((child) {
           assert (child.name == `Program.Expression` );
+          /*
           assert (
             child.matches.length == 1
-            , `Expected expressions to have a single element: ` ~ child.to!string
-          );
+            , `Expected a single expression` // `Expected expressions to have a single element: ` ~ child.to!string
+          );*/
         })
         .map! (child => parseProgram (child [0], ruleMatcher, rules))
         .array ();
-      return rules [ruleMatcher.match (toRet, rules)].applyRule (
-        toRet, [], ruleMatcher
-      );
+      uint rulePos = 0;
+      auto retValue = Value.init;
+      while (rulePos < toRet.length) {
+        // TODO: Optimize.
+        auto applied = rules [ruleMatcher.match (toRet, rules)].applyRule (
+          (rulePos == 0 ? [] : [retValue]) ~ toRet [rulePos .. $], [], ruleMatcher
+        );
+        retValue = applied [0];
+        rulePos += applied [1];
+      }
+      debug {
+        writeln (`DEBUG: Returned result is `, retValue);
+      }
+      return retValue;
     case `Program.Expression`:
       assert (pt.children.length == 1);
       return parseProgram (pt[0], ruleMatcher, rules);

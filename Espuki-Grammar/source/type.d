@@ -121,11 +121,15 @@ private class ParametrizedTypeInfo : TypeInfo_ {
 }
 
 TypeInfo_ [TypeId] globalTypeInfo;
+ParametrizedKind [] globalParametrizedKinds;
 
-bool isParametrizedFrom (TypeId type, in ParametrizedKind kind) {
+bool isParametrizedFrom (TypeId type, in ParametrizedKind * kind) {
   auto typeInfo = globalTypeInfo [type];
   if (auto asParametrized = (cast (ParametrizedTypeInfo) typeInfo)) {
-    return * asParametrized.kind == kind;
+    import std.stdio;
+    writeln (`DEB: As parametrized kind is `, asParametrized.kind);
+    writeln (`DEB: Being compared to  `, * kind);
+    return asParametrized.kind.id == kind.id;
   } else {
     return false;
   }
@@ -133,10 +137,13 @@ bool isParametrizedFrom (TypeId type, in ParametrizedKind kind) {
 
 /// Used to create parametrized types.
 struct ParametrizedKind {
+  uint id;
   TypeId [] argTypes;
   string baseName;
   TypeId [Value []] instances;
-  this (string baseName, TypeId [] argTypes) {
+  @disable this ();
+  this (uint id, string baseName, TypeId [] argTypes) {
+    this.id = id;
     this.baseName = baseName;
     this.argTypes = argTypes;
   }
@@ -179,10 +186,18 @@ struct ParametrizedKind {
   }
 }
 
-ParametrizedKind ArrayKind;
+ParametrizedKind * addParametrizedKind (string baseName, TypeId [] argTypes) {
+  import value : Var;
+  globalParametrizedKinds ~= ParametrizedKind (
+    globalParametrizedKinds.length.to!uint, baseName, argTypes
+  );
+  return &globalParametrizedKinds [$-1];
+}
+
+ParametrizedKind* ArrayKind;
 // For `a to b` expressions.
-ParametrizedKind MappingKind;
-ParametrizedKind AAKind;
+ParametrizedKind* MappingKind;
+ParametrizedKind* AAKind;
 
 auto arrayOf (TypeId type) {
   // TODO: Check size.
@@ -245,7 +260,7 @@ shared static this () {
   +/
 
   // Intrinsic parametrized types:
-  ArrayKind = ParametrizedKind ("Array", [Kind]);
-  MappingKind = ParametrizedKind ("Mapping", [Kind, Kind]);
-  AAKind = ParametrizedKind ("AssociativeArray", [Kind, Kind]);
+  ArrayKind = addParametrizedKind ("Array", [Kind]);
+  MappingKind = addParametrizedKind ("Mapping", [Kind, Kind]);
+  AAKind = addParametrizedKind ("AssociativeArray", [Kind, Kind]);
 }

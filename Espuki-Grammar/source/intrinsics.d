@@ -16,7 +16,7 @@ Value espukiToFun (
   // , ref ValueScope valueScope
 ) {
   assert (inputs.length == 3);
-  return toEspuki(Mapping(inputs [0], inputs [2]));
+  return toEspuki (Mapping (inputs [0], inputs [2]));
 }
 
 // NOTE: Due to limitations with the hash of Vars, we use void* here.
@@ -28,6 +28,8 @@ Value createAA (
   assert (inputs.length == 3);
   TypeId typeMapping = arrayElementType (inputs [0].type);
   TypeId [2] mappingTypes = mappingElementTypes (typeMapping);
+  import std.stdio;
+  writeln ("Creating an associative array with types ", mappingTypes);
   void * [void *] toRet;
   assert (0, `TODO: Fill AA`);
   // TODO: Fill with inputs.
@@ -41,7 +43,7 @@ shared static this () {
     , toDelegate (&espukiToFun)
   );
   auto createAAR = Rule (
-    [RuleParam(MappingTo (String, String)), RuleParam (`as`.asSymbol), RuleParam (`aa`.asSymbol)]
+    [RuleParam (ArrayKind), RuleParam (`as`.asSymbol), RuleParam (`aa`.asSymbol)]
     , toDelegate (&createAA)
   );
   globalRules = [espukiTo, createAAR];
