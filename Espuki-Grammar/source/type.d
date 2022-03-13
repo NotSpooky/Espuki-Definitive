@@ -207,11 +207,21 @@ auto associativeArrayOf (TypeId keyType, TypeId valueType) {
   );
 }
 
+TypeId getElementParameter (TypeId type, size_t index) {
+  auto argType = (cast (ParametrizedTypeInfo) globalTypeInfo [type])
+    .args [index];
+  assert (argType.type == Kind);
+  return argType.extractVar ().tryMatch! ((TypeId t) => t);
+}
+
 TypeId arrayElementType (TypeId arrayType) {
   // Type must be an array.
-  auto elementType = (cast (ParametrizedTypeInfo) globalTypeInfo [arrayType]).args [0];
-  assert (elementType.type == Kind);
-  return elementType.extractVar ().tryMatch! ((size_t t) => t);
+  return getElementParameter (arrayType, 0);
+}
+
+TypeId aaValueType (TypeId aaType) {
+  // Type must be an aa.
+  return getElementParameter (aaType, 1);
 }
 
 TypeId [2] mappingElementTypes (TypeId mappingType) {

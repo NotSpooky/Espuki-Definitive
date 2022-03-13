@@ -31,7 +31,6 @@ Value createAA (
   TypeId [2] mappingTypes = mappingElementTypes (typeMapping);
   EspukiAA toRet;
   
-  // TODO: Fill with inputs.
   auto asArray = inputs [0]
     .extractVar ()
     .tryMatch!((Var [] vars) => vars)
@@ -44,6 +43,36 @@ Value createAA (
   return toRet.toEspuki (mappingTypes [0], mappingTypes [1]);
 }
 
+Value arrayPos (
+  in Value [] inputs
+  , in Value [] underscoreArgs
+  , ref RuleMatcher ruleMatcher
+) {
+  assert (inputs.length == 3);
+  TypeId elementType = inputs [0].type.arrayElementType ();
+  return Value (
+    elementType
+    , inputs [0]
+      .extractVar
+      .tryMatch!((Var [] asArray) => asArray) [inputs [2].extractVar.tryMatch!((long l) => l)]
+  );
+}
+
+Value aaGet (
+  in Value [] inputs
+  , in Value [] underscoreArgs
+  , ref RuleMatcher ruleMatcher
+) {
+  assert (inputs.length == 3);
+  TypeId valueType = inputs [0].type.aaValueType ();
+  return Value (
+    valueType
+    , inputs [0]
+      .extractVar
+      .tryMatch! ((EspukiAA aa) => aa.val) [inputs [2].extractVar]
+  );
+}
+
 shared static this () {
   // TODO: Make generic
   auto espukiTo = Rule (
@@ -54,5 +83,13 @@ shared static this () {
     [RuleParam (ArrayKind), RuleParam (`as`.asSymbol), RuleParam (`aa`.asSymbol)]
     , toDelegate (&createAA)
   );
-  globalRules = [espukiTo, createAAR];
+  auto arrayPosIdx = Rule (
+    [RuleParam (ArrayKind), RuleParam (`pos`.asSymbol), RuleParam (I64)]
+    , toDelegate (&arrayPos)
+  );
+  auto aaGet = Rule (
+    [RuleParam (AAKind), RuleParam (`get`.asSymbol), RuleParam (Any)]
+    , toDelegate (&aaGet)
+  );
+  globalRules = [espukiTo, createAAR, arrayPosIdx, aaGet];
 }
