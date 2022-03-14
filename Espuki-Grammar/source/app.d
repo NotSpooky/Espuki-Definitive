@@ -56,13 +56,13 @@ void main () {
   string toParse =
     //`"I'm some string";`
     //`("Hello", "World", 5.010);`
-    `["First", "Second", "Third"];`
+    //`["First", "Second", "Third"] pos 0;`
     //`"Sleep"->honk;`
     //`5.010;`
     //`10;`
     //`["hello" to "goodbye", "thank you" to "you're welcome"] as aa;`
-    //`["hello" to "goodbye", "thank you" to "you're welcome"] as aa
-    //  get "hello";`
+    `[5 to 10, 6 to 12] as aa
+      get 5;`
     // TODO from here:
     //`"Olis""Sleeps";`
     //`((5, 10, 10.5, "Hello") "World" ("World2",) ("LastOne"));`
@@ -101,7 +101,6 @@ Value parseProgram (ParseTree pt, ref RuleMatcher ruleMatcher, Rule [] rules) {
         if (args.length == 1) {
           return args [0];
         }
-        writeln (`++++++++ `, args, ` +++++++`);
         // TODO: Optimize.
         auto applied = rules [ruleMatcher.match (args, rules)]
           .applyRule (
@@ -111,7 +110,6 @@ Value parseProgram (ParseTree pt, ref RuleMatcher ruleMatcher, Rule [] rules) {
           );
         retValue = applied [0];
         rulePos += applied [1];
-        writeln (`-------------- Now args is `, (rulePos == 0 ? [] : [retValue]) ~ toRet [rulePos .. $]);
       }
       debug {
         writeln ("\tReturned result is ", retValue);

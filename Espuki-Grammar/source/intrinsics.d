@@ -7,6 +7,7 @@ import rule;
 import type;
 import scopes;
 import value;
+debug import std.stdio;
 
 Rule [] globalRules;
 
@@ -33,11 +34,11 @@ Value createAA (
   
   auto asArray = inputs [0]
     .extractVar ()
-    .tryMatch!((Var [] vars) => vars)
-    .map!(var => var.tryMatch!((Var [] mapping) => mapping));
-  // return toEspuki (toRet, mappingTypes [0], mappingTypes [1]);
+    .tryMatch! ((Var [] vars) => vars)
+    .map! (var => var.tryMatch!((Var [] mapping) => mapping));
   foreach (mapped; asArray) {
     assert (mapped.length == 2);
+    writeln (`===== Inserting `, mapped, ` into AA`);
     toRet.val [mapped [0]] = mapped [1];
   }
   return toRet.toEspuki (mappingTypes [0], mappingTypes [1]);
@@ -77,7 +78,7 @@ Value aaGet (
 shared static this () {
   // TODO: Make generic
   auto espukiTo = Rule (
-    [RuleParam (String), RuleParam (asSymbol (`to`)), RuleParam (String)]
+    [RuleParam (Any), RuleParam (asSymbol (`to`)), RuleParam (Any)]
     , toDelegate (&espukiToFun)
   );
   auto createAAR = Rule (
