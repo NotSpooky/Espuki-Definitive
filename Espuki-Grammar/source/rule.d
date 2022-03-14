@@ -1,12 +1,14 @@
 module rule;
 
 import std.algorithm;
+import std.conv;
 import std.range;
 import std.sumtype;
 import std.typecons : Nullable;
 import value : Value;
 import type;
 import scopes;
+debug import std.stdio;
 
 // Used for rule declarations.
 alias RuleParam = SumType! (TypeId, Value, ParametrizedKind *);
@@ -30,12 +32,22 @@ struct Rule {
   auto applyRule (Value [] args, Value [] underscoreArgs, ref RuleMatcher ruleMatcher) {
     debug (2) {
       // TODO: Take into account underscoreArgs
-      assert (score (args, this).match! ((Scores s) => true, (NoMatch nm) => false));
+      assert (score (args, this, 777).match! ((Scores s) => true, (NoMatch nm) => false));
     }
+
+    writeln (`DEB: Apply rule called for `, args);
+    writeln ("\tWith rule ", this);
     size_t pLen = this.params.length;
     assert (pLen <= args.length);
     import std.typecons : tuple;
     return tuple (this.applyFun (args [0 .. pLen], underscoreArgs, ruleMatcher), pLen);
+  }
+  
+  void toString (
+    scope void delegate (const (char)[]) sink
+  ) const {
+    sink (`Rule for `);
+    sink (this.params.to!string);
   }
 }
 
@@ -73,7 +85,8 @@ MatchScores score (in Value [] toMatch, in Rule rule, size_t rulePos) {
   }
   auto matchScores = new MatchType [rule.params.length];
   foreach (i, param; rule.params) {
-    auto elementScore = param.match!(
+    writeln (`DEB: Scoring `, toMatch [i], ` with `, param, ` of `, rule);
+    auto elementScore = param.match! (
       (TypeId type) {
         if (type == Any) {
           return MatchType.anyTypeMatch;
@@ -83,26 +96,28 @@ MatchScores score (in Value [] toMatch, in Rule rule, size_t rulePos) {
       },
       (const Value val) {
         // Exact value.
-        return toMatch[i] == val ? MatchType.exactValueAndTypeMatch : MatchType.noMatch;
+        writeln (`Scoring val `, val, ` with `, toMatch [i]);
+        return toMatch [i] == val ? MatchType.exactValueAndTypeMatch : MatchType.noMatch;
       },
       (const ParametrizedKind * pKind) {
-        import std.stdio;
         return toMatch [i].type.isParametrizedFrom (pKind) ? MatchType.derivedTypeMatch : MatchType.noMatch;
       }
     );
+
+    writeln (`For a score of `, elementScore);
     if (elementScore == MatchType.noMatch) {
-      import std.stdio;
       return MatchScores (NoMatch ());
     }
     matchScores [i] = elementScore;
   }
+  writeln (`It matches! `, matchScores);
   return MatchScores (Scores (matchScores, rulePos));
 }
 
 /// Returns a list containing the best matches for the input at the position 'index'.
 private size_t [] bestOfIndex (size_t index, Scores [] matchedRules) {
   size_t [] bestOfThisIndex;
-  MatchType currentBestMatchType = MatchType.derivedTypeMatch;
+  MatchType currentBestMatchType = cast (MatchType) (MatchType.noMatch - 1);
   foreach (m, matchedRule; matchedRules) {
     auto matchScore = matchedRule.scores [index];
     if (matchScore < currentBestMatchType) {
@@ -123,17 +138,17 @@ struct RuleMatcher {
     assert (rules.length > 0, `No rules to match`);
 
     import std.stdio;
-    writeln (`DEB: Matching `, toMatch);
-    writeln (`DEB: With rules: `, rules);
+    writeln (`999: Matching `, toMatch);
     // TODO: Get only the longest matches
     auto matchedRules = rules
       .enumerate
       .map! (rule => score (toMatch, rule [1], rule [0]))
-      .filter!(score => score.match! ((Scores s) => true, (NoMatch s) => false))
-      .map!(score => score.tryMatch! ((Scores a) => a))
-      .tee!(score => assert (score.scores.length > 0, `Got an empty score list`))
+      .filter! (score => score.match! ((Scores s) => true, (NoMatch s) => false))
+      //.tee! (score => writeln (`DEB: Scores are `, score))
+      .map! (score => score.tryMatch! ((Scores a) => a))
+      .tee! (score => assert (score.scores.length > 0, `Got an empty score list`))
       .array;
-
+    writeln (`111 Matched the following rules: `, matchedRules);
     import std.conv : to, text;
     if (matchedRules.empty) {
       throw new Exception (`No rules match ` ~ toMatch.to!string);
@@ -147,9 +162,11 @@ struct RuleMatcher {
       bestMatchPositions [bestOfFirst] = true;
     }
 
+    writeln (`DEB: Best matches before removing are `, bestMatchPositions);
     // Prune on each subsequent position the matches that aren't the best ones.
     foreach (i; 1 .. matchedRules.front.scores.length) {
       size_t [] bestOfThisIndex = bestOfIndex (i, matchedRules);
+      writeln (`Best of index at pos `, i, ` are `, bestOfThisIndex);
       assert (bestOfThisIndex.length > 0);
       foreach (bestOfThisPos; bestOfThisIndex) {
         if (bestOfThisPos !in bestMatchPositions) {
@@ -158,17 +175,18 @@ struct RuleMatcher {
       }
     }
 
+    writeln (`DEB: Best matches after removing are `, bestMatchPositions);
     auto bestMatchesInAllPositions = bestMatchPositions.byKey().array();
     if (bestMatchesInAllPositions.length == 1) {
-      writeln (`DEB: Best rule position is `, bestMatchesInAllPositions [0]);
-      size_t toRet = matchedRules [bestMatchesInAllPositions [0]].rulePos;
-      return toRet;
+      auto toRet = matchedRules [bestMatchesInAllPositions [0]];
+      return toRet.rulePos;
     }
 
     auto rulesInBestMatches () {
       return matchedRules
         .indexed (bestMatchesInAllPositions)
-        .map! (m => rules [m.rulePos]);
+        .map! (m => rules [m.rulePos])
+        .tee! (d => writeln (`DEB: Rule matches `, d));
     }
 
     if (matchedRules.length > 1) {

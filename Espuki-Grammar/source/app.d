@@ -60,8 +60,9 @@ void main () {
     //`"Sleep"->honk;`
     //`5.010;`
     //`10;`
+    //`["hello" to "goodbye", "thank you" to "you're welcome"] as aa;`
     `["hello" to "goodbye", "thank you" to "you're welcome"] as aa
-      get "thank you";`
+      get "hello";`
     // TODO from here:
     //`"Olis""Sleeps";`
     //`((5, 10, 10.5, "Hello") "World" ("World2",) ("LastOne"));`
@@ -96,15 +97,21 @@ Value parseProgram (ParseTree pt, ref RuleMatcher ruleMatcher, Rule [] rules) {
       uint rulePos = 0;
       auto retValue = Value.init;
       while (rulePos < toRet.length) {
+        auto args = (rulePos == 0 ? [] : [retValue]) ~ toRet [rulePos .. $];
+        writeln (`++++++++ `, args, ` +++++++`);
         // TODO: Optimize.
-        auto applied = rules [ruleMatcher.match (toRet, rules)].applyRule (
-          (rulePos == 0 ? [] : [retValue]) ~ toRet [rulePos .. $], [], ruleMatcher
-        );
+        auto applied = rules [ruleMatcher.match (args, rules)]
+          .applyRule (
+            args
+            , []
+            , ruleMatcher
+          );
         retValue = applied [0];
         rulePos += applied [1];
+        writeln (`-------------- Now args is `, (rulePos == 0 ? [] : [retValue]) ~ toRet [rulePos .. $]);
       }
       debug {
-        writeln (`DEBUG: Returned result is `, retValue);
+        writeln ("\tReturned result is ", retValue);
       }
       return retValue;
     case `Program.Expression`:

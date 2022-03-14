@@ -4,6 +4,7 @@ import std.sumtype;
 import std.conv : to;
 import rule;
 import type;
+debug import std.stdio;
 
 struct StructType {
   size_t [TypeId] offsets;
@@ -53,7 +54,7 @@ struct CompiledValue {
 // To prevent toHash warnings.
 struct VarWrapper {
   Var var;
-  size_t toHash () const nothrow @safe {
+  size_t toHash () const nothrow {
     return var.match! (a => a.hashOf ());
   }
 }
@@ -70,8 +71,23 @@ struct Value {
   }
   @disable this ();
 
-  size_t toHash () const nothrow @safe {
-    return type.hashOf () + value.match! (a => a.toHash(), a => a.hashOf ());
+  size_t toHash () const nothrow {
+    try {
+      return type.hashOf () + this.extractVar ()
+        .match! (a => a.hashOf ());
+    } catch (Exception ex) {
+      assert (0, ex.message);
+    }
+  }
+
+  bool opEquals (inout ref Value other) const 
+  out (res) {
+    // writeln (`Which yields `, res);
+  } do {
+    debug {
+      //writeln (`Comparing `, this.to!string, ` to `, other.to!string);
+    }
+    return this.type == other.type && this.extractVar () == other.extractVar ();
   }
 
   // Use only if the value is interpreted.
@@ -95,7 +111,6 @@ struct Value {
         interpretedVal.var.match! (
           (const Var [] v) {
             if (isParametrizedFrom (type, MappingKind)) {
-              import std.stdio;
               sink (v [0].to!string);
               sink (` -> `);
               sink (v [1].to!string);

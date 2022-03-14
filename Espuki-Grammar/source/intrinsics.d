@@ -63,6 +63,7 @@ Value aaGet (
   , in Value [] underscoreArgs
   , ref RuleMatcher ruleMatcher
 ) {
+  import std.stdio;
   assert (inputs.length == 3);
   TypeId valueType = inputs [0].type.aaValueType ();
   return Value (
