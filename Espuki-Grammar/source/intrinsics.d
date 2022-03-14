@@ -38,8 +38,8 @@ Value createAA (
     .map! (var => var.tryMatch!((Var [] mapping) => mapping));
   foreach (mapped; asArray) {
     assert (mapped.length == 2);
-    writeln (`===== Inserting `, mapped, ` into AA`);
-    toRet.val [mapped [0]] = mapped [1];
+    writeln (`===== Inserting `, mapped [0], ` -> `, mapped [1], ` into AA`);
+    toRet.val [VarWrapper (mapped [0])] = mapped [1];
   }
   return toRet.toEspuki (mappingTypes [0], mappingTypes [1]);
 }
@@ -55,7 +55,8 @@ Value arrayPos (
     elementType
     , inputs [0]
       .extractVar
-      .tryMatch!((Var [] asArray) => asArray) [inputs [2].extractVar.tryMatch!((long l) => l)]
+      .tryMatch!((Var [] asArray) => asArray)
+      [inputs [2].extractVar.tryMatch!((long l) => l)]
   );
 }
 
@@ -64,14 +65,14 @@ Value aaGet (
   , in Value [] underscoreArgs
   , ref RuleMatcher ruleMatcher
 ) {
-  import std.stdio;
   assert (inputs.length == 3);
   TypeId valueType = inputs [0].type.aaValueType ();
   return Value (
     valueType
     , inputs [0]
       .extractVar
-      .tryMatch! ((EspukiAA aa) => aa.val) [inputs [2].extractVar]
+      .tryMatch! ((EspukiAA aa) => aa.val)
+      [VarWrapper (inputs [2].extractVar)]
   );
 }
 

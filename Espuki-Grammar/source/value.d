@@ -31,8 +31,22 @@ alias Var = SumType! (
   , EspukiAA
 );
 
+// To prevent toHash errors.
+struct VarWrapper {
+  Var var;
+  size_t toHash () const nothrow {
+    return var.match! (a => a.hashOf ());
+  }
+  this (Var val) {
+    this.var = val;
+  }
+  this (T)(in T val) if (!is (T == Var)) {
+    this.var = Var (val);
+  }
+}
+
 struct EspukiAA {
-  Var [Var] val;
+  Var [VarWrapper] val;
 }
 
 // Note: Verbose name because TypeId == long.
@@ -48,14 +62,6 @@ struct CompiledValue {
     scope void delegate (const (char)[]) sink
   ) const {
     sink(`Compiled TODO: Add rule and dependencies`);
-  }
-}
-
-// To prevent toHash warnings.
-struct VarWrapper {
-  Var var;
-  size_t toHash () const nothrow {
-    return var.match! (a => a.hashOf ());
   }
 }
 

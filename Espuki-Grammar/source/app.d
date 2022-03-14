@@ -61,11 +61,10 @@ void main () {
     //`5.010;`
     //`10;`
     //`["hello" to "goodbye", "thank you" to "you're welcome"] as aa;`
-    // TODO: Allow using things such as strings for the key (D's AA seems to
-    // not be able to use them in Vars as indexes correctly
-    // (probably due to them being a pointer).
-    `[5 to "five", 6 to "six"] as aa
-      get 5;`
+    //`[5 to "five", 6 to "six"] as aa
+    //  get 5;`
+    `["five" to 5, "six" to 6] as aa
+      get "five";`
     // TODO from here:
     //`"Olis""Sleeps";`
     //`((5, 10, 10.5, "Hello") "World" ("World2",) ("LastOne"));`
