@@ -19,7 +19,7 @@ void main () {
   // TODO: Spacing.
   mixin(grammar(`
     Program:
-      Program <- Expressions :';'
+      Program <- (Expressions Spacing :';'? Spacing)*
       Expressions < Expression+
       Expression < Assignment
                    / LastReference
@@ -64,14 +64,15 @@ void main () {
     //`[5 to "five", 6 to "six"] as aa
     //  get 5;`
     `["five" to 5, "six" to 6] as aa
-      get "five";`
+      get "five";
+     "Spooky"`
     // TODO from here:
     //`"Olis""Sleeps";`
     //`((5, 10, 10.5, "Hello") "World" ("World2",) ("LastOne"));`
     //`(_2 _3);`
     //`{5.1 /* Sleep :3 */ _34}; /+ Hello +/`
     ;
-  auto parseTree = Program.Expressions(toParse);
+  auto parseTree = Program.Program(toParse);
   //toHTML(parseTree, File(`spooks.html`, `w`));
   auto decimatedTree = Program.decimateTree (parseTree);
   writeln (decimatedTree);
@@ -81,8 +82,12 @@ void main () {
 Value parseProgram (ParseTree pt, ref RuleMatcher ruleMatcher, Rule [] rules) {
   switch (pt.name) {
     case `Program.Program`:
-      assert (pt.children.length == 1);
-      return parseProgram (pt[0], ruleMatcher, rules);
+      Value lastResult = Value.init;
+      foreach (expressionChain; pt.children) {
+        writeln (`DEBUG: Parsing expression chain: `, expressionChain);
+        lastResult = parseProgram (expressionChain, ruleMatcher, rules);
+      }
+      return lastResult;
     case `Program.Expressions`:
       auto toRet = pt
         .children
