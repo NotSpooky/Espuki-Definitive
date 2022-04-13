@@ -67,6 +67,99 @@ struct CompiledValue {
 
 alias ValueContent = SumType! (VarWrapper, CompiledValue);
 
+// An alternative when the value is known to be a VarWrapper
+struct InterpretedValue {
+  TypeId type;
+  VarWrapper value;
+  this(TypeId type, Var value) {
+    this.type = type;
+    this.value = VarWrapper (value);
+  }
+
+  this(Value value) {
+    this.type = value.type;
+    this.value = value.value.tryMatch! ((VarWrapper vw) => vw);
+  }
+
+  @disable this ();
+
+  /*
+  size_t toHash () const nothrow {
+    try {
+      return type.hashOf () + this.value.hashOf ();
+    } catch (Exception ex) {
+      assert (0, ex.message);
+    }
+  }
+  */
+
+  void toString (
+    scope void delegate (const (char)[]) sink
+  ) const {
+    import t = type;
+    import std.algorithm;
+    sink (globalTypeInfo [this.type].name);
+    sink (` `);
+    this.value.var.match! (
+      (const Var [] v) {
+        if (isParametrizedFrom (type, MappingKind)) {
+          sink (v [0].to!string);
+          sink (` -> `);
+          sink (v [1].to!string);
+        } else {
+          sink (`[`);
+          TypeId elementType = Any;
+          if (isParametrizedFrom (type, ArrayKind)) {
+            elementType = arrayElementType (type);
+          }
+          sink (
+            v
+              .map! (b => valueToString (elementType, b))
+              .joiner (`, `)
+              .to!string
+          );
+          sink (`]`);
+        }
+      }, (string v) {
+        sink (v);
+      }, (const Value [] v) {
+        sink (`[`);
+        sink (
+          v
+            .map! (b => b.to!string ())
+            .joiner (`, `)
+            .to!string
+        );
+        sink (`]`);
+      }, (size_t v) {
+        if (type == Kind) {
+          sink (globalTypeInfo [v].name);
+        } else {
+          sink (v.to!string);
+        }
+      }, (const EspukiAA aa) {
+        sink (`[`);
+        /+sink (
+          aa
+	  .val
+	  //.byKey
+	  .map! (pair => pair.key.to!string ~ ` to ` ~ pair.value.to!string)
+	  //.joiner (`, `)
+	  .to!string
+        );+/
+        sink (`... values ...`);
+        sink (`]`);
+      }, (v) {
+        sink (v.to!string);
+      }
+    );
+  }
+}
+
+private string valueToString (TypeId elementType, Var var) {
+  return InterpretedValue (elementType, var).to!string;
+}
+
 struct Value {
   TypeId type;
   ValueContent value;
@@ -101,74 +194,11 @@ struct Value {
     return this.value.tryMatch! ((VarWrapper v) => v.var);
   }
 
-  private string valueToString (TypeId elementType, Var var) const {
-      return Value (elementType, var).to!string;
-  }
-
-  void toString (
-    scope void delegate (const (char)[]) sink
-  ) const {
-    import t = type;
-    import std.algorithm;
-    value.match! (
-      (VarWrapper interpretedVal) {
-        sink (globalTypeInfo [this.type].name);
-        sink (` `);
-        interpretedVal.var.match! (
-          (const Var [] v) {
-            if (isParametrizedFrom (type, MappingKind)) {
-              sink (v [0].to!string);
-              sink (` -> `);
-              sink (v [1].to!string);
-            } else {
-              sink (`[`);
-              TypeId elementType = Any;
-              if (isParametrizedFrom (type, ArrayKind)) {
-                elementType = arrayElementType (type);
-              }
-              sink (
-                v
-                  .map! (b => valueToString (elementType, b))
-                  .joiner (`, `)
-                  .to!string
-              );
-              sink (`]`);
-            }
-          }, (string v) {
-            sink (v);
-          }, (const Value [] v) {
-            sink (`[`);
-            sink (
-              v
-                .map! (b => b.to!string ())
-                .joiner (`, `)
-                .to!string
-            );
-            sink (`]`);
-          }, (size_t v) {
-            if (type == Kind) {
-              sink (globalTypeInfo [v].name);
-            } else {
-              sink (v.to!string);
-            }
-          }, (EspukiAA aa) {
-            sink (`[`);
-            /+sink (
-              aa
-                .val
-                //.byKey
-                .map! (pair => pair.key.to!string ~ ` to ` ~ pair.value.to!string)
-                //.joiner (`, `)
-                .to!string
-            );+/
-            sink (`... values ...`);
-            sink (`]`);
-          }, (v) {
-            sink (v.to!string);
-          }
-        );
-      }, (cVal) {
-        sink (cVal.to!string);
+  string toString () const {
+    return value.match! (
+      (VarWrapper interpretedVal) => valueToString (this.type, interpretedVal.var),
+      (const CompiledValue ctVal) {
+        return globalTypeInfo [this.type].name ~ ` ` ~ ctVal.to!string;
       }
     );
   }

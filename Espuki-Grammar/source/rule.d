@@ -5,13 +5,16 @@ import std.conv;
 import std.range;
 import std.sumtype;
 import std.typecons : Nullable;
-import value : Value;
-import type;
+import graph;
 import scopes;
+import type;
+import value : Value, InterpretedValue;
+
 debug import std.stdio;
 
 // Used for rule declarations.
-alias RuleParam = SumType! (TypeId, Value, ParametrizedKind *);
+// strings are symbols.
+alias RuleParam = SumType! (TypeId, string, ParametrizedKind *);
 
 alias ApplyFun = Value delegate (
   in Value [] inputs
@@ -29,18 +32,19 @@ struct Rule {
     this.applyFun = applyFun;
   }
   // ONLY use if the rule matches.
-  auto applyRule (Value [] args, Value [] underscoreArgs, ref RuleMatcher ruleMatcher) {
+  auto applyRule (TypeId [] args, ref RuleMatcher ruleMatcher) {
     debug (2) {
-      // TODO: Take into account underscoreArgs
-      assert (score (args, this, 777).match! ((Scores s) => true, (NoMatch nm) => false));
+      //assert (score (args, this, 777).match! ((Scores s) => true, (NoMatch nm) => false));
     }
 
     writeln (`DEB: Apply rule called for `, args);
     writeln ("\tWith rule ", this);
+    /+
     size_t pLen = this.params.length;
     assert (pLen <= args.length);
     import std.typecons : tuple;
     return tuple (this.applyFun (args [0 .. pLen], underscoreArgs, ruleMatcher), pLen);
+    +/
   }
   
   void toString (
@@ -57,7 +61,7 @@ enum MatchType {
   // E.g. A rule has an 'I32 42' parameter and the argument matched is 'I32 42'.
   exactValueAndTypeMatch
   // E.g. A rule has an 'I64 42' parameter and the argument matched is 'I32 42'
-  , exactValueMatch
+  // , exactValueMatch
   // E.g. A rule has an 'I32' parameter and the argument matched is 'I32 42'.
   , exactTypeMatch
   // E.g. A rule has an 'I64' parameter and the argument matched is 'I32 42'.
@@ -79,7 +83,7 @@ private alias MatchScores = SumType! (Scores, NoMatch);
 /// Returns a wrapped list (Scores) that corresponds to how good the match was 
 /// at each position.
 /// If the rule doesn't match, a NoMatch is returned instead.
-MatchScores score (in Value [] toMatch, in Rule rule, size_t rulePos) {
+MatchScores score (in Node [] toMatch, in Rule rule, size_t rulePos) {
   if (toMatch.length < rule.params.length) {
     return MatchScores (NoMatch ());
   }
@@ -91,16 +95,29 @@ MatchScores score (in Value [] toMatch, in Rule rule, size_t rulePos) {
         if (type == Any) {
           return MatchType.anyTypeMatch;
         }
-        return type == toMatch [i].type ? MatchType.exactTypeMatch : MatchType.noMatch;
+        return type == toMatch [i].match!(a => type) ? MatchType.exactTypeMatch : MatchType.noMatch;
         // TODO: Derived type match.
       },
+      (string symbol) {
+      	return toMatch [i].match!(
+          (const CallNode cN) {
+            //assert (0, `TODO: Match a symbol with a compile-type value`);
+            debug writeln (`TODO: Match a symbol with a compile-type value`);
+            return MatchType.noMatch;
+          }, (InterpretedValue iv) {
+            return (iv.type == Symbol && iv.value.var.tryMatch!((string s) => s) == symbol)
+	      ? MatchType.exactValueAndTypeMatch : MatchType.noMatch;
+          }
+        );
+      },
+      /+
       (const Value val) {
         // Exact value.
         // writeln (`Scoring val `, val, ` with `, toMatch [i]);
         return toMatch [i] == val ? MatchType.exactValueAndTypeMatch : MatchType.noMatch;
-      },
+      },+/
       (const ParametrizedKind * pKind) {
-        return toMatch [i].type.isParametrizedFrom (pKind) ? MatchType.derivedTypeMatch : MatchType.noMatch;
+        return toMatch [i].match!(c => c.type).isParametrizedFrom (pKind) ? MatchType.derivedTypeMatch : MatchType.noMatch;
       }
     );
 
@@ -134,7 +151,7 @@ struct RuleMatcher {
   /// If some rule has the best match in a position but not in another, it's
   /// ambiguous which one to use so an error is returned.
   /// Returns the position in the rules that corresponds to the best matching one.
-  size_t match (Value [] toMatch, ref Rule [] rules) {
+  size_t match (Node [] toMatch, ref Rule [] rules) {
     assert (rules.length > 0, `No rules to match`);
 
     import std.stdio;

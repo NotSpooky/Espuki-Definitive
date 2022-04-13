@@ -10,6 +10,7 @@ import pegged.grammar;
 import pegged.tohtml; // Useful for debugging.
 import pegString = pegged.examples.strings;
 import pegged.examples.numbers;
+import graph;
 import intrinsics;
 import rule;
 import type;
@@ -79,10 +80,10 @@ void main () {
   writeln (parseProgram (decimatedTree, ruleMatcher, globalRules));
 }
 
-Value parseProgram (ParseTree pt, ref RuleMatcher ruleMatcher, Rule [] rules) {
+Node parseProgram (ParseTree pt, ref RuleMatcher ruleMatcher, Rule [] rules) {
   switch (pt.name) {
     case `Program.Program`:
-      Value lastResult = Value.init;
+      Node lastResult = Node.init;
       foreach (expressionChain; pt.children) {
         writeln (`DEBUG: Parsing expression chain: `, expressionChain);
         lastResult = parseProgram (expressionChain, ruleMatcher, rules);
@@ -102,60 +103,74 @@ Value parseProgram (ParseTree pt, ref RuleMatcher ruleMatcher, Rule [] rules) {
         .map! (child => parseProgram (child [0], ruleMatcher, rules))
         .array ();
       uint rulePos = 0;
-      auto retValue = Value.init;
+      auto retNode = Node.init;
       while (rulePos < toRet.length) {
-        auto args = (rulePos == 0 ? [] : [retValue]) ~ toRet [rulePos .. $];
+        auto args = (rulePos == 0 ? [] : [retNode]) ~ toRet [rulePos .. $];
         if (args.length == 1) {
           return args [0];
         }
         // TODO: Optimize.
-        auto applied = rules [ruleMatcher.match (args, rules)]
+        auto rule = rules [ruleMatcher.match (args, rules)];
+        rulePos += rule.params.length;
+	/+
           .applyRule (
             args
             , []
             , ruleMatcher
           );
-        retValue = applied [0];
-        rulePos += applied [1];
+	+/
       }
       debug {
-        writeln ("\tReturned result is ", retValue);
+        writeln ("\tReturned result is ", retNode);
       }
-      return retValue;
+      return retNode;
     case `Program.Expression`:
       assert (pt.children.length == 1);
       return parseProgram (pt[0], ruleMatcher, rules);
     case `Program.StringLiteral`:
       assert (pt.matches.length == 1);
-      return Value (String, Var (pt.matches [0].to!string));
+      return Node(InterpretedValue (String, Var (pt.matches [0].to!string)));
     case `Program.FloatLiteral`:
       assert (pt.matches.length == 1);
-      return Value (F32, Var (pt.matches [0].to!float)); // TODO: Store literals as another type.
+      // TODO: Store literals as another type.
+      return Node(InterpretedValue (F32, Var (pt.matches [0].to!float)));
     case `Program.IntegerLiteral`:
       assert (pt.matches.length == 1);
-      return Value (I64, Var (pt.matches [0].to!long));
+      return Node(InterpretedValue (I64, Var (pt.matches [0].to!long)));
     case `Program.TupleLiteral`:
-      return (Value (
+      assert (0, `TODO: Change to a tuple-creation rule`);
+      /*
+      return Node(InterpretedValue (
         TupleT,
         Var (pt.children.map! (a => parseProgram(a, ruleMatcher, rules)).array)
       ));
+      */
     case `Program.ArrayLiteral`:
-      auto parsedTree = pt.children.map! (element => parseProgram (element, ruleMatcher, rules)).array;
-      if (parsedTree.length == 0) {
-        return Value (
-          EmptyArray, Var(Value[].init)
+      auto parsedTree = pt.children.map! ((element) {
+        auto parsed = parseProgram (element, ruleMatcher, rules);
+        return parsed.match!(
+          (InterpretedValue iV) => Value (iV.type, iV.value.var)
+          , (CallNode cN) {
+            assert (0, `TODO: Array call nodes`);
+            return Value(Any, Var(null));
+          }
         );
+      });
+      if (parsedTree.empty) {
+        return Node(InterpretedValue (
+          EmptyArray, Var(Value[].init)
+        ));
       } else {
         auto varToRet = new Var [parsedTree.length];
-        return Value (
+        return Node(InterpretedValue (
           arrayOf(parsedTree [0].type),
           // TODO: Store as an array of Var instead of arrays of values
           // To do so, the D type must be extracted from the Values
-          Var (parsedTree.map!(a => a.extractVar ()).array)
-        );
+          Var (parsedTree.array)
+        ));
       }
     case `Program.Symbol`:
-      return Value (Symbol, Var (pt.matches [0]));
+      return Node(InterpretedValue (Symbol, Var (pt.matches [0])));
     default:
       writeln (`> TODO: `, pt.name);
       assert (0);

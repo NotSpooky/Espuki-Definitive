@@ -79,19 +79,19 @@ Value aaGet (
 shared static this () {
   // TODO: Make generic
   auto espukiTo = Rule (
-    [RuleParam (Any), RuleParam (asSymbol (`to`)), RuleParam (Any)]
+    [RuleParam (Any), RuleParam (`to`), RuleParam (Any)]
     , toDelegate (&espukiToFun)
   );
   auto createAAR = Rule (
-    [RuleParam (ArrayKind), RuleParam (`as`.asSymbol), RuleParam (`aa`.asSymbol)]
+    [RuleParam (ArrayKind), RuleParam (`as`), RuleParam (`aa`)]
     , toDelegate (&createAA)
   );
   auto arrayPosIdx = Rule (
-    [RuleParam (ArrayKind), RuleParam (`pos`.asSymbol), RuleParam (I64)]
+    [RuleParam (ArrayKind), RuleParam (`pos`), RuleParam (I64)]
     , toDelegate (&arrayPos)
   );
   auto aaGet = Rule (
-    [RuleParam (AAKind), RuleParam (`get`.asSymbol), RuleParam (Any)]
+    [RuleParam (AAKind), RuleParam (`get`), RuleParam (Any)]
     , toDelegate (&aaGet)
   );
   globalRules = [espukiTo, createAAR, arrayPosIdx, aaGet];
