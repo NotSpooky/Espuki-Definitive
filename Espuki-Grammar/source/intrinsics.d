@@ -12,9 +12,8 @@ debug import std.stdio;
 Rule [] globalRules;
 
 // Used to create Mappings, mostly used to create associative arrays/dicts.
-Value espukiToFun (
-  in Value [] inputs
-  , in Value [] underscoreArgs
+InterpretedValue espukiToFun (
+  in InterpretedValue [] inputs
   , ref RuleMatcher ruleMatcher
   // , ref ValueScope valueScope
 ) {
@@ -22,9 +21,8 @@ Value espukiToFun (
   return toEspuki (Mapping (inputs [0], inputs [2]));
 }
 
-Value createAA (
-  in Value [] inputs
-  , in Value [] underscoreArgs
+InterpretedValue createAA (
+  in InterpretedValue [] inputs
   , ref RuleMatcher ruleMatcher
 ) {
   assert (inputs.length == 3);
@@ -44,14 +42,13 @@ Value createAA (
   return toRet.toEspuki (mappingTypes [0], mappingTypes [1]);
 }
 
-Value arrayPos (
-  in Value [] inputs
-  , in Value [] underscoreArgs
+InterpretedValue arrayPos (
+  in InterpretedValue [] inputs
   , ref RuleMatcher ruleMatcher
 ) {
   assert (inputs.length == 3);
   TypeId elementType = inputs [0].type.arrayElementType ();
-  return Value (
+  return InterpretedValue (
     elementType
     , inputs [0]
       .extractVar
@@ -60,18 +57,17 @@ Value arrayPos (
   );
 }
 
-Value aaGet (
-  in Value [] inputs
-  , in Value [] underscoreArgs
+InterpretedValue aaGet (
+  in InterpretedValue [] inputs
   , ref RuleMatcher ruleMatcher
 ) {
   assert (inputs.length == 3);
   TypeId valueType = inputs [0].type.aaValueType ();
-  return Value (
+  return InterpretedValue (
     valueType
     , inputs [0]
       .extractVar
-      .tryMatch! ((EspukiAA aa) => aa.val)
+      .tryMatch! ((const EspukiAA aa) => aa.val)
       [VarWrapper (inputs [2].extractVar)]
   );
 }

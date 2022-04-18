@@ -76,20 +76,22 @@ void main () {
   auto parseTree = Program.Program(toParse);
   //toHTML(parseTree, File(`spooks.html`, `w`));
   auto decimatedTree = Program.decimateTree (parseTree);
-  writeln (decimatedTree);
-  writeln (parseProgram (decimatedTree, ruleMatcher, globalRules));
+  //writeln (decimatedTree);
+  writeln (`Last result: `, parseProgram (decimatedTree, ruleMatcher, globalRules));
 }
 
 Node parseProgram (ParseTree pt, ref RuleMatcher ruleMatcher, Rule [] rules) {
   switch (pt.name) {
     case `Program.Program`:
       Node lastResult = Node.init;
+      writeln (`DEBUG: Parsed program: `, pt.children);
       foreach (expressionChain; pt.children) {
-        writeln (`DEBUG: Parsing expression chain: `, expressionChain);
+        writeln (`> DEBUG: Subexpression chain: `, expressionChain);
         lastResult = parseProgram (expressionChain, ruleMatcher, rules);
       }
       return lastResult;
     case `Program.Expressions`:
+      writeln (`> > DEBUG: Parsing expressions: `, pt.children);
       auto toRet = pt
         .children
         .tee !((child) {
@@ -102,16 +104,28 @@ Node parseProgram (ParseTree pt, ref RuleMatcher ruleMatcher, Rule [] rules) {
         })
         .map! (child => parseProgram (child [0], ruleMatcher, rules))
         .array ();
-      uint rulePos = 0;
+      uint offsetPos = 0;
       auto retNode = Node.init;
-      while (rulePos < toRet.length) {
-        auto args = (rulePos == 0 ? [] : [retNode]) ~ toRet [rulePos .. $];
+      while (offsetPos < toRet.length) {
+        // When no offset, then it hasn't been parsed yet.
+        auto args = (offsetPos == 0 ? [] : [retNode]) ~ toRet [offsetPos .. $];
+        writeln (`> > > DEBUG: Parsing args: `, args);
         if (args.length == 1) {
           return args [0];
         }
         // TODO: Optimize.
         auto rule = rules [ruleMatcher.match (args, rules)];
-        rulePos += rule.params.length;
+        writeln(`> > > DEBUG: Matched rule `, rule);
+        if (args.all! (
+          arg => arg.match! ((InterpretedValue iv) => true, (CallNode cN) => false)
+        )) {
+          // Can be interpreted.
+          writeln (`> > > Can be interpreted!`);
+          retNode = rule.applyFun (
+            args.map!(arg => arg.tryMatch!((InterpretedValue iV) => iV)).array, ruleMatcher
+          );
+        }
+        offsetPos += rule.params.length;
 	/+
           .applyRule (
             args
@@ -121,7 +135,7 @@ Node parseProgram (ParseTree pt, ref RuleMatcher ruleMatcher, Rule [] rules) {
 	+/
       }
       debug {
-        writeln ("\tReturned result is ", retNode);
+        writeln ("< < Returned result is ", retNode);
       }
       return retNode;
     case `Program.Expression`:
@@ -151,6 +165,7 @@ Node parseProgram (ParseTree pt, ref RuleMatcher ruleMatcher, Rule [] rules) {
         return parsed.match!(
           (InterpretedValue iV) => Value (iV.type, iV.value.var)
           , (CallNode cN) {
+            writeln (`DEB: Trying to create an array with the element `, cN);
             assert (0, `TODO: Array call nodes`);
             return Value(Any, Var(null));
           }

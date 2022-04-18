@@ -16,9 +16,8 @@ debug import std.stdio;
 // strings are symbols.
 alias RuleParam = SumType! (TypeId, string, ParametrizedKind *);
 
-alias ApplyFun = Value delegate (
-  in Value [] inputs
-  , in Value [] underscoreArgs
+alias ApplyFun = InterpretedValue delegate (
+  in InterpretedValue [] inputs
   , ref RuleMatcher ruleMatcher
   // , ref ValueScope valueScope
 );
@@ -26,7 +25,7 @@ alias ApplyFun = Value delegate (
 struct Rule {
   @disable this ();
   RuleParam [] params;
-  private ApplyFun applyFun;
+  ApplyFun applyFun;
   this (RuleParam [] params, ApplyFun applyFun) {
     this.params = params;
     this.applyFun = applyFun;

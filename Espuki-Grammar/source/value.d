@@ -83,6 +83,9 @@ struct InterpretedValue {
 
   @disable this ();
 
+  auto extractVar () inout {
+    return this.value.var;
+  }
   /*
   size_t toHash () const nothrow {
     try {
@@ -209,17 +212,17 @@ Value asSymbol (string symbol) {
 }
 
 struct Mapping {
-  Value source;
-  Value destination;
+  InterpretedValue source;
+  InterpretedValue destination;
 }
 
-Value toEspuki (Mapping mapping) {
+InterpretedValue toEspuki (Mapping mapping) {
   auto outType = mapping.source.type.MappingTo (mapping.destination.type);
-  return Value (
+  return InterpretedValue (
     outType, Var ([mapping.source.extractVar (), mapping.destination.extractVar ()])
   );
 }
 
-Value toEspuki (EspukiAA aa, TypeId keyType, TypeId valueType) {
-  return Value (associativeArrayOf (keyType, valueType), Var (aa));
+InterpretedValue toEspuki (EspukiAA aa, TypeId keyType, TypeId valueType) {
+  return InterpretedValue (associativeArrayOf (keyType, valueType), Var (aa));
 }
