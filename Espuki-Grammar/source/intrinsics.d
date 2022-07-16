@@ -13,7 +13,7 @@ Rule [] globalRules;
 
 // Used to create Mappings, mostly used to create associative arrays/dicts.
 InterpretedValue espukiToFun (
-  in InterpretedValue [] inputs
+  ref InterpretedValue [] inputs
   , ref RuleMatcher ruleMatcher
   // , ref ValueScope valueScope
 ) {
@@ -22,18 +22,26 @@ InterpretedValue espukiToFun (
 }
 
 InterpretedValue createAA (
-  in InterpretedValue [] inputs
+  ref InterpretedValue [] inputs
   , ref RuleMatcher ruleMatcher
 ) {
-  assert (inputs.length == 3);
+  // Should this be == 3?
+  pragma(msg, "YAAAAAY");
+  pragma(msg, typeof(inputs));
+  pragma(msg, "YAAAAAY");
+  assert (inputs.length >= 3);
   TypeId typeMapping = arrayElementType (inputs [0].type);
   TypeId [2] mappingTypes = mappingElementTypes (typeMapping);
   EspukiAA toRet;
   
   auto asArray = inputs [0]
     .extractVar ()
-    .tryMatch! ((Var [] vars) => vars)
-    .map! (var => var.tryMatch!((Var [] mapping) => mapping));
+    .tryMatch! ((Value [] vars) => vars)
+    .map! (var => var
+      .extractVar
+      //.tryMatch!((VarWrapper vw) => vw)
+      .tryMatch!((Var [] mapping) => mapping)
+    );
   foreach (mapped; asArray) {
     assert (mapped.length == 2);
     writeln (`===== Inserting `, mapped [0], ` -> `, mapped [1], ` into AA`);
@@ -43,7 +51,7 @@ InterpretedValue createAA (
 }
 
 InterpretedValue arrayPos (
-  in InterpretedValue [] inputs
+  ref InterpretedValue [] inputs
   , ref RuleMatcher ruleMatcher
 ) {
   assert (inputs.length == 3);
@@ -58,7 +66,7 @@ InterpretedValue arrayPos (
 }
 
 InterpretedValue aaGet (
-  in InterpretedValue [] inputs
+  ref InterpretedValue [] inputs
   , ref RuleMatcher ruleMatcher
 ) {
   assert (inputs.length == 3);

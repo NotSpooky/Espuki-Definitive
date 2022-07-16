@@ -17,7 +17,7 @@ debug import std.stdio;
 alias RuleParam = SumType! (TypeId, string, ParametrizedKind *);
 
 alias ApplyFun = InterpretedValue delegate (
-  in InterpretedValue [] inputs
+  ref InterpretedValue [] inputs
   , ref RuleMatcher ruleMatcher
   // , ref ValueScope valueScope
 );

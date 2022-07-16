@@ -121,9 +121,8 @@ Node parseProgram (ParseTree pt, ref RuleMatcher ruleMatcher, Rule [] rules) {
         )) {
           // Can be interpreted.
           writeln (`> > > Can be interpreted!`);
-          retNode = rule.applyFun (
-            args.map!(arg => arg.tryMatch!((InterpretedValue iV) => iV)).array, ruleMatcher
-          );
+          auto sentArgs = args.map!(arg => arg.tryMatch!((InterpretedValue iV) => iV)).array;
+          retNode = rule.applyFun (sentArgs, ruleMatcher);
         }
         offsetPos += rule.params.length;
 	/+
