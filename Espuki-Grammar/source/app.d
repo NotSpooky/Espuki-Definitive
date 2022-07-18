@@ -1,7 +1,9 @@
 module app;
 
+import core.stdc.stdlib : exit;
 import std.algorithm;
 import std.array;
+import std.file : readText;
 import std.conv;
 import std.range;
 import std.stdio;
@@ -16,7 +18,7 @@ import rule;
 import type;
 import value;
 
-void main () {
+void main (string [] args) {
   // TODO: Spacing.
   mixin(grammar(`
     Program:
@@ -53,8 +55,16 @@ void main () {
       Spacing <- :(SingleSpacing)*
       Symbol <- identifier
   `));
+  if (args.length <= 1) {
+    stderr.writeln (`Error: No filename specified.`);
+    exit(1);
+  } else if (args.length >= 3) {
+    stderr.writeln (`Error: Not implemented: Multiple filenames.`);
+    exit(1);
+  }
+  auto toParse = readText (args [1]);
   RuleMatcher ruleMatcher;
-  string toParse =
+  /+string toParse =
     //`"I'm some string";`
     //`("Hello", "World", 5.010);`
     //`["First", "Second", "Third"] pos 0;`
@@ -72,7 +82,7 @@ void main () {
     //`((5, 10, 10.5, "Hello") "World" ("World2",) ("LastOne"));`
     //`(_2 _3);`
     //`{5.1 /* Sleep :3 */ _34}; /+ Hello +/`
-    ;
+    ;+/
   auto parseTree = Program.Program(toParse);
   //toHTML(parseTree, File(`spooks.html`, `w`));
   auto decimatedTree = Program.decimateTree (parseTree);
