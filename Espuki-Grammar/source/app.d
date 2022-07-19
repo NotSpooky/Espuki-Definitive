@@ -66,17 +66,11 @@ void main (string [] args) {
   RuleMatcher ruleMatcher;
   /+string toParse =
     //`"I'm some string";`
-    //`("Hello", "World", 5.010);`
     //`["First", "Second", "Third"] pos 0;`
     //`"Sleep"->honk;`
     //`5.010;`
     //`10;`
     //`["hello" to "goodbye", "thank you" to "you're welcome"] as aa;`
-    //`[5 to "five", 6 to "six"] as aa
-    //  get 5;`
-    `["five" to 5, "six" to 6] as aa
-      get "five";
-     "Spooky"`
     // TODO from here:
     //`"Olis""Sleeps";`
     //`((5, 10, 10.5, "Hello") "World" ("World2",) ("LastOne"));`
@@ -161,13 +155,19 @@ Node parseProgram (ParseTree pt, ref RuleMatcher ruleMatcher, Rule [] rules) {
       assert (pt.matches.length == 1);
       return Node(InterpretedValue (I64, Var (pt.matches [0].to!long)));
     case `Program.TupleLiteral`:
-      assert (0, `TODO: Change to a tuple-creation rule`);
-      /*
-      return Node(InterpretedValue (
-        TupleT,
-        Var (pt.children.map! (a => parseProgram(a, ruleMatcher, rules)).array)
-      ));
-      */
+      //assert (0, `TODO: Change to a tuple-creation rule`);
+      auto childrenVals = pt
+        .children
+        .map! (a => parseProgram(a, ruleMatcher, rules))
+        .array;
+      if (childrenVals.all!(a => a.match!((InterpretedValue i) => true, (CallNode c) => false))) {
+        return Node(InterpretedValue (
+          TupleT,
+          Var (childrenVals.map!(a => a.tryMatch!((InterpretedValue i) => i.extractVar)).array)
+        ));
+      } else {
+        assert (false, `TODO: Create a rule for runtime tuple creation for tuple literals.`);
+      }
     case `Program.ArrayLiteral`:
       auto parsedTree = pt.children.map! ((element) {
         auto parsed = parseProgram (element, ruleMatcher, rules);
