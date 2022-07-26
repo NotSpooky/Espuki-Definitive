@@ -3,9 +3,9 @@
 		"Christian Durán"
 	],
 	"copyright": "Copyright © 2021, Christian Durán",
-	"description": "Espuki Lexer/Parser.",
+	"description": "Espuki interpreter and compiler.",
 	"license": "BSD-2",
-	"name": "espuki-grammar",
+	"name": "espuki",
   "dependencies": {
     "pegged": "~>0.4.6",
     "pegged:numbers": "~>0.4.6",
