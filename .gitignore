@@ -1,0 +1,15 @@
+.dub
+docs.json
+__dummy.html
+docs/
+/espuki
+espuki.so
+espuki.dylib
+espuki.dll
+espuki.a
+espuki.lib
+espuki-test-*
+*.exe
+*.o
+*.obj
+*.lst

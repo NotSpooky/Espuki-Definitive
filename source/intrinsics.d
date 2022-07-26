@@ -1,360 +1,102 @@
 module intrinsics;
 
 import std.algorithm;
-import std.conv;
-import std.range;
-import execute;
-import parser : Expression;
-import mir.algebraic : Nullable;
+import std.functional : toDelegate;
+import std.sumtype;
+import rule;
+import type;
+import scopes;
+import value;
 debug import std.stdio;
 
-TypeId Kind; // Just a Type of Type.
-TypeId String;
-TypeId Symbol;
-TypeId I8;
-TypeId I16;
-TypeId I32;
-TypeId I64;
-TypeId F32;
-TypeId F64;
-TypeId TupleT;
-TypeId NamedTypeT;
-TypeId ExpressionT;
-TypeId RuleT;
-ParametrizedKind Array;
-ParametrizedKind SumType;
-ParametrizedKind Struct;
-TypeId EmptyArray; // Not an instance of array, has special rules.
-TypeId ArrayOfTypes;
-// Note: To prevent forward refs, this uses void * (which is an Expression [] *)
-TypeId ArrayOfExpressions;
+Rule [] globalRules;
 
-RuleScope * globalRules;
-/// In text code it's just an stack, in a graph it changes, however.
-ValueScope globalScope;
-
-RTValue asSymbol (string name) {
-  return RTValue (Symbol, Var (name));
+// Used to create Mappings, mostly used to create associative arrays/dicts.
+InterpretedValue espukiToFun (
+  ref InterpretedValue [] inputs
+  , ref RuleMatcher ruleMatcher
+  // , ref ValueScope valueScope
+) {
+  assert (inputs.length == 3);
+  return toEspuki (Mapping (inputs [0], inputs [2]));
 }
-struct TypeImplicitConversions {
-  TypeId [] moreGeneral;
 
-  private auto visitT (TypeId type) const {
-    bool [TypeId] visitedTypes;
-    auto typesToTry = [type];
-    Appender! (TypeId []) toRet;
-    while (!typesToTry.empty) {
-      const t = typesToTry [$-1];
-      typesToTry = typesToTry [0 .. $-1];
-      toRet ~= t;
-      const tInImplicit = t in implicitConversions;
-      if (tInImplicit) {
-        foreach (generalType; (* tInImplicit).moreGeneral) {
-          visitedTypes.require (generalType, {
-            typesToTry ~= generalType;
-            return true;
-          } ());
-        }
-      }
-    }
-    return toRet [];
+InterpretedValue createAA (
+  ref InterpretedValue [] inputs
+  , ref RuleMatcher ruleMatcher
+) {
+  // Should this be == 3?
+  assert (inputs.length >= 3);
+  TypeId typeMapping = arrayElementType (inputs [0].type);
+  TypeId [2] mappingTypes = mappingElementTypes (typeMapping);
+  EspukiAA toRet;
+  
+  auto asArray = inputs [0]
+    .extractVar ()
+    .tryMatch! ((Value [] vars) => vars)
+    .map! (var => var
+      .extractVar
+      //.tryMatch!((VarWrapper vw) => vw)
+      .tryMatch!((Var [] mapping) => mapping)
+    );
+  foreach (mapped; asArray) {
+    assert (mapped.length == 2);
+    writeln (`===== Inserting `, mapped [0], ` -> `, mapped [1], ` into AA`);
+    toRet.val [VarWrapper (mapped [0])] = mapped [1];
   }
+  return toRet.toEspuki (mappingTypes [0], mappingTypes [1]);
 }
 
-TypeImplicitConversions [TypeId] implicitConversions;
-
-/// Includes itself and all the types this one can implicitly convert to.
-auto visitTypeConvs (TypeId type) {
-  auto tInImplicit = type in implicitConversions;
-  if (tInImplicit) {
-    return (*tInImplicit).visitT (type);
-  }
-  return [type];
+InterpretedValue arrayPos (
+  ref InterpretedValue [] inputs
+  , ref RuleMatcher ruleMatcher
+) {
+  assert (inputs.length == 3);
+  TypeId elementType = inputs [0].type.arrayElementType ();
+  writeln(inputs [0].extractVar);
+  writeln(elementType);
+  return InterpretedValue (
+    elementType
+    , inputs [0]
+      .extractVar
+      .tryMatch!((Value [] asArray) => asArray)
+      [inputs [2].extractVar.tryMatch!((long l) => l)]
+      .extractVar
+  );
 }
 
-private TypeId addPrimitive (string name) {
-  // As of now, all variables will be stored on a Var, so that'll be the size.
-  return globalScope.addType (name, Var.sizeof);
+InterpretedValue aaGet (
+  ref InterpretedValue [] inputs
+  , ref RuleMatcher ruleMatcher
+) {
+  assert (inputs.length == 3);
+  TypeId valueType = inputs [0].type.aaValueType ();
+  return InterpretedValue (
+    valueType
+    , inputs [0]
+      .extractVar
+      .tryMatch! ((const EspukiAA aa) => aa.val)
+      [VarWrapper (inputs [2].extractVar)]
+  );
 }
 
 shared static this () {
-  // Primitives:
-  Kind = addPrimitive (`Kind`);
-  String = addPrimitive (`String`);
-  Symbol = addPrimitive (`Symbol`);
-  I8 = addPrimitive (`I8`);
-  I16 = addPrimitive (`I16`);
-  I32 = addPrimitive (`I32`);
-  I64 = addPrimitive (`I64`);
-  F32 = addPrimitive (`F32`);
-  F64 = addPrimitive (`F64`);
-  TupleT = addPrimitive (`Tuple`);
-  NamedTypeT = addPrimitive (`NamedType`);
-  ExpressionT = addPrimitive (`Expression`);
-  RuleT = addPrimitive (`Rule`);
-  EmptyArray = addPrimitive (`EmptyArray`);
-
-  // Implicit conversions:
-  implicitConversions [F32] = TypeImplicitConversions ([F64]);
-  implicitConversions [I32] = TypeImplicitConversions ([F64, I64]);
-  implicitConversions [I16] = TypeImplicitConversions ([F32, I32]);
-  implicitConversions [I8] = TypeImplicitConversions ([I16]);
-
-  // Parametrized types:
-  Array = ParametrizedKind (
-    `Array`, [Kind]
+  // TODO: Make generic
+  auto espukiTo = Rule (
+    [RuleParam (Any), RuleParam (`to`), RuleParam (Any)]
+    , toDelegate (&espukiToFun)
   );
-  ArrayOfTypes = arrayOf (Kind);
-  // Array of types should be here too?
-  SumType = ParametrizedKind (
-    `SumType`, [ArrayOfTypes]
+  auto createAAR = Rule (
+    [RuleParam (ArrayKind), RuleParam (`as`), RuleParam (`aa`)]
+    , toDelegate (&createAA)
   );
-  Struct = ParametrizedKind (
-    `Struct`, [ArrayOfTypes]
+  auto arrayPosIdx = Rule (
+    [RuleParam (ArrayKind), RuleParam (`pos`), RuleParam (I64)]
+    , toDelegate (&arrayPos)
   );
-  ArrayOfExpressions = arrayOf (ExpressionT);
-
-  import std.functional : toDelegate;
-  globalRules = new RuleScope ([
-    // I32 plus I32
-    fromD!plus (automaticParams!plus (1, `+`))
-    , fromD!writeString (automaticParams!writeString (0, `writeln`))
-    // Type [] to represent array types.
-    , Rule (
-      [
-        RuleParam (Kind)
-        , RuleParam (EmptyArray)
-      ]
-      , (
-        in RTValue [] args
-        , in RTValue [] underscoreArgs
-        , ref RuleMatcher ruleMatcher
-        , ref ValueScope valueScope
-      ) {
-        assert (args.length == 2);
-        return RTValue (Kind, Var(arrayOf (args [0].value.get!TypeId)));
-      }
-    )
-    // apply Expression [].
-    , Rule (
-      [
-        RuleParam (I32)
-        , RuleParam (`apply`.asSymbol ())
-        , RuleParam (ArrayOfExpressions)
-      ]
-      , (
-        in RTValue [] args
-        , in RTValue [] underscoreArgs
-        , ref RuleMatcher ruleMatcher
-        , ref ValueScope valueScope
-      ) {
-        assert (args.length == 3);
-        /+debug writeln (
-          "Apply called, will now execute with:\n\t"
-          , args [0].value, ` in `, args [1].value
-        );+/
-        auto result = executeFromExpressions (
-          args [2].value.get! (Expressions).expressions
-          , Nullable!RTValue (args [0])
-          , underscoreArgs
-          , ruleMatcher
-          , globalScope
-        );
-        if (result.isNull) {
-          throw new Exception (`Got no result from apply`);
-        }
-        //debug writeln (`Apply result: `, result);
-        return result.get!RTValue;
-      }.toDelegate
-    )
-    // Tuple 'at' index
-    , Rule (
-      [
-        RuleParam (TupleT)
-        , RuleParam (`at`.asSymbol)
-        , RuleParam (I32)
-      ]
-      , (
-        in RTValue [] args
-        , in RTValue [] underscoreArgs
-        , ref RuleMatcher ruleMatcher
-        , ref ValueScope valueScope
-      ) {
-        assert (args.length == 3);
-        // Cannot return the indexed directly, as it's const.
-        auto source = args [0].value.get!(RTValue [])[args [2].value.get!(int)];
-        return RTValue (source.type, source.value);
-      }
-    )
-    // NamedValueT constructor.
-    , Rule (
-      [
-        RuleParam (Kind)
-        , RuleParam (Symbol)
-      ]
-      , (
-        in RTValue [] args
-        , in RTValue [] underscoreArgs
-        , ref RuleMatcher ruleMatcher
-        , ref ValueScope valueScope
-      ) {
-        assert (args.length == 2);
-        return RTValue (NamedTypeT, Var (NamedType (
-          args [1].value.get!string, args [0].value.get!TypeId
-        )));
-      }
-    )
-    , Rule (
-      [
-        RuleParam (`Struct`.asSymbol)
-        , RuleParam (arrayOf (NamedTypeT))
-      ]
-      , (
-        in RTValue [] args
-        , in RTValue [] underscoreArgs
-        , ref RuleMatcher ruleMatcher
-        , ref ValueScope valueScope
-      ) {
-        debug stderr.writeln (`TODO: Create struct types`);
-        return RTValue (I32, Var (9999));
-      }
-    )
-    // Rule to add more rules.
-    , Rule (
-      [
-        RuleParam (TupleT)
-        , RuleParam (ArrayOfExpressions)
-      ]
-      , (
-        in RTValue [] args
-        , in RTValue [] underscoreArgs
-        , ref RuleMatcher ruleMatcher
-        , ref ValueScope valueScope
-      ) {
-        assert (args.length == 2);
-        // debug writeln (`Adding rule with params `, args [0]);
-        struct NameWithPos {
-          string name;
-          size_t pos;
-        }
-        NameWithPos [] namedArgLocations;
-        RuleParam [] rParams;
-        foreach (i, rParam; args [0].value.get! (RTValue [])) {
-          // TODO: Add a way to escape named types so they can be found by value.
-          if (rParam.type == NamedTypeT) {
-            auto asNT = rParam.value.get!NamedType;
-            rParams ~= RuleParam (asNT.type);
-            namedArgLocations ~= NameWithPos (asNT.name, i);
-          } else {
-            rParams ~= RuleParam (rParam);
-          }
-        }
-        auto toRet = new Rule (
-          rParams
-          , (
-            in RTValue [] newRArgs
-            , in RTValue [] underscoreArgs
-            , ref RuleMatcher ruleMatcher
-            , ref ValueScope valueScope
-          ) {
-            RTValue [string] newScope;
-            foreach (namedArg; namedArgLocations) {
-              newScope [namedArg.name] = newRArgs [namedArg.pos];
-            }
-            return valueScope.withScope! ((s) {
-              auto result = executeFromExpressions (
-                args [1].value.get! (Expressions).expressions
-                , Nullable!RTValue (null)
-                , underscoreArgs
-                , ruleMatcher
-                , s
-              );
-              if (result.isNull) {
-                throw new Exception (`Got no result`);
-              }
-              return result.get!RTValue;
-            }) (newScope);
-          }
-        );
-        ruleMatcher.addRule (toRet);
-        return RTValue (RuleT, Var (toRet));
-      }
-    )
-  ]);
-}
-
-extern (C) {
-  int plus (int a, int b) { return a + b; }
-  string writeString (string toWrite) {
-    import std.stdio;
-    writeln (toWrite);
-    return toWrite;
-  }
-}
-
-template TypeMapping (DType) {
-  static if (is (DType == string)) {
-    alias TypeMapping = String;
-  } else static if (is (DType == int)) {
-    alias TypeMapping = I32;
-  } else static if (is (DType == float)) {
-    alias TypeMapping = F32;
-  } else static if (is (DType == RTValue [])) {
-    alias TypeMapping = TupleT;
-  }
-}
-
-import std.traits;
-import rulematcher;
-RuleParam [] automaticParams (alias Fun)(
-  size_t nameLocation = 0
-  , string name = Fun.mangleof
-) {
-  alias DParams = Parameters!Fun;
-  RuleParam [] params;
-  foreach (Param; DParams) {
-    params ~= RuleParam (TypeMapping!Param);
-  }
-  return params [0 .. nameLocation]
-    ~ RuleParam (RTValue (Symbol, Var (name)))
-    ~ params [nameLocation .. $];
-}
-
-import std.conv : to, text;
-Rule fromD (alias Fun) (RuleParam [] params = automaticParams!Fun) {
-  alias RetType = ReturnType!Fun;
-  alias Params = Parameters!Fun;
-  return Rule (params, (
-    in RTValue [] args
-    , in RTValue [] underscoreArgs
-    , ref RuleMatcher ruleMatcher
-    , ref ValueScope valueScope
-  ) {
-      uint lastIdx = 0;
-      // TODO: Foreach with mixin that sets all the values from args.
-      static foreach (i, Param; Params) {
-        while (args [lastIdx].type == Symbol) {
-          lastIdx ++;
-        }
-        /+
-        auto expectedType = TypeMapping!Param;
-        assert (
-          args [i].type == expectedType
-          , text (`Expected arg `, i, ` of `, FunName, ` to be of type `, expectedType.name)
-        );
-        +/
-        mixin (q{auto arg} ~ i.to!string ~ q{ = args [lastIdx].value.get!Param ();});
-        lastIdx ++;
-      }
-      mixin (
-        q{auto result = Fun (}
-          ~ iota (Params.length)
-          .map!(`"arg" ~ a.to!string`)
-          .joiner (`, `)
-          .to!string 
-        ~ q{);}
-      );
-      return RTValue (TypeMapping!RetType, Var (result));
-    }
+  auto aaGet = Rule (
+    [RuleParam (AAKind), RuleParam (`get`), RuleParam (Any)]
+    , toDelegate (&aaGet)
   );
+  globalRules = [espukiTo, createAAR, arrayPosIdx, aaGet];
 }
