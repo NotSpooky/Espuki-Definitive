@@ -26,9 +26,6 @@ InterpretedValue createAA (
   , ref RuleMatcher ruleMatcher
 ) {
   // Should this be == 3?
-  pragma(msg, "YAAAAAY");
-  pragma(msg, typeof(inputs));
-  pragma(msg, "YAAAAAY");
   assert (inputs.length >= 3);
   TypeId typeMapping = arrayElementType (inputs [0].type);
   TypeId [2] mappingTypes = mappingElementTypes (typeMapping);
@@ -56,12 +53,15 @@ InterpretedValue arrayPos (
 ) {
   assert (inputs.length == 3);
   TypeId elementType = inputs [0].type.arrayElementType ();
+  writeln(inputs [0].extractVar);
+  writeln(elementType);
   return InterpretedValue (
     elementType
     , inputs [0]
       .extractVar
-      .tryMatch!((Var [] asArray) => asArray)
+      .tryMatch!((Value [] asArray) => asArray)
       [inputs [2].extractVar.tryMatch!((long l) => l)]
+      .extractVar
   );
 }
 

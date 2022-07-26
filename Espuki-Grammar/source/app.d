@@ -66,7 +66,6 @@ void main (string [] args) {
   RuleMatcher ruleMatcher;
   /+string toParse =
     //`"I'm some string";`
-    //`["First", "Second", "Third"] pos 0;`
     //`"Sleep"->honk;`
     //`5.010;`
     //`10;`
@@ -155,7 +154,6 @@ Node parseProgram (ParseTree pt, ref RuleMatcher ruleMatcher, Rule [] rules) {
       assert (pt.matches.length == 1);
       return Node(InterpretedValue (I64, Var (pt.matches [0].to!long)));
     case `Program.TupleLiteral`:
-      //assert (0, `TODO: Change to a tuple-creation rule`);
       auto childrenVals = pt
         .children
         .map! (a => parseProgram(a, ruleMatcher, rules))
