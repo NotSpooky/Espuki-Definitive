@@ -22,9 +22,10 @@ void main (string [] args) {
   // TODO: Spacing.
   mixin(grammar(`
     Program:
-      Program <- (Expressions Spacing :';'? Spacing)*
+      Program <- (Expressions :Spacing :';'? :Spacing)*
       Expressions < Expression+
       Expression < Assignment
+                   / Lambda
                    / LastReference
                    / StringLiteral
                    / FloatLiteral
@@ -32,7 +33,6 @@ void main (string [] args) {
                    / TupleLiteral
                    / Grouping
                    / ArrayLiteral
-                   / Lambda
                    / InputPosReference
                    / InputNameReference
                    / Symbol
@@ -45,13 +45,15 @@ void main (string [] args) {
       TupleLiteral <- :'(' Spacing ((Expressions Spacing :',') | (Expressions Spacing (:',' Spacing Expressions)+ Spacing :','?)) Spacing :')'
       ArrayLiteral <- :'[' Spacing ((Expressions Spacing :',')* Spacing Expressions)? Spacing :','? Spacing :']'
       Grouping < :'(' :Spacing Expressions :Spacing :')'
-      Lambda < :'{' Expressions :'}'
+      Lambda <- :"{" :Spacing Expressions :Spacing :"}"
       InputPosReference <- 'in' :SingleSpacing+ IntegerLiteral
       InputNameReference <- 'in' :SingleSpacing+ identifier
-      Comment <: ("/*" (!("/*" / "*/") .)* "*/")
-      NestableComment <: ("/+" (NestableComment / Text)* "+/")
+      BlockComment <~ :'/ *' (!'* /' .)* :'* /'
+      LineComment <~ :'//' (!endOfLine .)* :endOfLine
+      NestableComment <~ ("/+" (NestableComment / Text)* "+/")
+      Comment <- BlockComment / LineComment / NestableComment
       Text    <: (!("/+" / "+/") .)* # Anything but begin/end markers
-      SingleSpacing <- :(' ' / '\t' / '\r' / '\n' / '\r\n' / Comment / NestableComment)
+      SingleSpacing <- :(' ' / '\t' / '\r' / '\n' / '\r\n' / Comment )
       Spacing <- :(SingleSpacing)*
       Symbol <- identifier
   `));
@@ -140,6 +142,10 @@ Node parseProgram (ParseTree pt, ref RuleMatcher ruleMatcher, Rule [] rules) {
         writeln ("< < Returned result is ", retNode);
       }
       return retNode;
+    case `Program.Lambda`:
+      writeln (pt.children);
+      writeln (`TODO: Lambda`);
+      return parseProgram(pt[1], ruleMatcher, rules);
     case `Program.Expression`:
       assert (pt.children.length == 1);
       return parseProgram (pt[0], ruleMatcher, rules);
