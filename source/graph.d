@@ -10,11 +10,11 @@ struct CallNode {
   TypeId type;
 }
 
-alias Node = SumType!(CallNode, InterpretedValue);
+alias Node = SumType! (CallNode, InterpretedValue);
 
 // Not named type to prevent clashes with the type module.
 TypeId typeId (Node node) {
-  return node.match!(n => n.type);
+  return node.match! (n => n.type);
 }
 
 struct SortedNode {

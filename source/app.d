@@ -26,28 +26,24 @@ void main (string [] args) {
       Expressions < Expression+
       Expression < Assignment
                    / Lambda
-                   / LastReference
+                   / ImplicitInput
                    / StringLiteral
                    / FloatLiteral
                    / IntegerLiteral
                    / TupleLiteral
                    / Grouping
                    / ArrayLiteral
-                   / InputPosReference
-                   / InputNameReference
                    / Symbol
     # Scientific: (FloatLiteral / IntegerLiteral) ( ('e' / 'E' ) Integer )
-      Assignment < Expression "->" identifier
-      LastReference <- :'_' [0-9]*
+      Assignment < Expression "->" Symbol
+      ImplicitInput <- :'_' [0-9]*
       StringLiteral <- pegString.String
       FloatLiteral <~ Numbers.Integer ('.' Numbers.Unsigned )
       IntegerLiteral <- Numbers.Integer
       TupleLiteral <- :'(' Spacing ((Expressions Spacing :',') | (Expressions Spacing (:',' Spacing Expressions)+ Spacing :','?)) Spacing :')'
       ArrayLiteral <- :'[' Spacing ((Expressions Spacing :',')* Spacing Expressions)? Spacing :','? Spacing :']'
       Grouping < :'(' :Spacing Expressions :Spacing :')'
-      Lambda <- :"{" :Spacing Expressions :Spacing :"}"
-      InputPosReference <- 'in' :SingleSpacing+ IntegerLiteral
-      InputNameReference <- 'in' :SingleSpacing+ identifier
+      Lambda <- :"{" Program :"}"
       BlockComment <~ :'/ *' (!'* /' .)* :'* /'
       LineComment <~ :'//' (!endOfLine .)* :endOfLine
       NestableComment <~ ("/+" (NestableComment / Text)* "+/")
@@ -55,7 +51,7 @@ void main (string [] args) {
       Text    <: (!("/+" / "+/") .)* # Anything but begin/end markers
       SingleSpacing <- :(' ' / '\t' / '\r' / '\n' / '\r\n' / Comment )
       Spacing <- :(SingleSpacing)*
-      Symbol <- identifier
+      Symbol <- identifier / '+' / '-' / '/' / '*'
   `));
   if (args.length <= 1) {
     stderr.writeln (`Error: No filename specified.`);
@@ -79,6 +75,8 @@ void main (string [] args) {
     //`{5.1 /* Sleep :3 */ _34}; /+ Hello +/`
     ;+/
   auto parseTree = Program.Program(toParse);
+  assert (parseTree.successful, `Parsing error`);
+  assert (parseTree.end == toParse.length, "Couldn't parse program at:\n" ~ toParse [parseTree.end .. $]);
   //toHTML(parseTree, File(`spooks.html`, `w`));
   auto decimatedTree = Program.decimateTree (parseTree);
   //writeln (decimatedTree);
@@ -143,9 +141,8 @@ Node parseProgram (ParseTree pt, ref RuleMatcher ruleMatcher, Rule [] rules) {
       }
       return retNode;
     case `Program.Lambda`:
-      writeln (pt.children);
-      writeln (`TODO: Lambda`);
-      return parseProgram(pt[1], ruleMatcher, rules);
+      import lambdagraph;
+      return createLambda (pt.children);
     case `Program.Expression`:
       assert (pt.children.length == 1);
       return parseProgram (pt[0], ruleMatcher, rules);
@@ -155,19 +152,19 @@ Node parseProgram (ParseTree pt, ref RuleMatcher ruleMatcher, Rule [] rules) {
     case `Program.FloatLiteral`:
       assert (pt.matches.length == 1);
       // TODO: Store literals as another type.
-      return Node(InterpretedValue (F32, Var (pt.matches [0].to!float)));
+      return Node (InterpretedValue (F32, Var (pt.matches [0].to!float)));
     case `Program.IntegerLiteral`:
       assert (pt.matches.length == 1);
-      return Node(InterpretedValue (I64, Var (pt.matches [0].to!long)));
+      return Node (InterpretedValue (I64, Var (pt.matches [0].to!long)));
     case `Program.TupleLiteral`:
       auto childrenVals = pt
         .children
         .map! (a => parseProgram(a, ruleMatcher, rules))
         .array;
-      if (childrenVals.all!(a => a.match!((InterpretedValue i) => true, (CallNode c) => false))) {
-        return Node(InterpretedValue (
+      if (childrenVals.all! (a => a.match! ((InterpretedValue i) => true, (CallNode c) => false))) {
+        return Node (InterpretedValue (
           TupleT,
-          Var (childrenVals.map!(a => a.tryMatch!((InterpretedValue i) => i.extractVar)).array)
+          Var (childrenVals.map! (a => a.tryMatch! ((InterpretedValue i) => i.extractVar)).array)
         ));
       } else {
         assert (false, `TODO: Create a rule for runtime tuple creation for tuple literals.`);
@@ -180,25 +177,25 @@ Node parseProgram (ParseTree pt, ref RuleMatcher ruleMatcher, Rule [] rules) {
           , (CallNode cN) {
             writeln (`DEB: Trying to create an array with the element `, cN);
             assert (0, `TODO: Array call nodes`);
-            return Value(Any, Var(null));
+            return Value (Any, Var (null));
           }
         );
       });
       if (parsedTree.empty) {
-        return Node(InterpretedValue (
-          EmptyArray, Var(Value[].init)
+        return Node (InterpretedValue (
+          EmptyArray, Var (Value[].init)
         ));
       } else {
         auto varToRet = new Var [parsedTree.length];
-        return Node(InterpretedValue (
-          arrayOf(parsedTree [0].type),
+        return Node (InterpretedValue (
+          arrayOf (parsedTree [0].type),
           // TODO: Store as an array of Var instead of arrays of values
           // To do so, the D type must be extracted from the Values
           Var (parsedTree.array)
         ));
       }
     case `Program.Symbol`:
-      return Node(InterpretedValue (Symbol, Var (pt.matches [0])));
+      return Node (InterpretedValue (Symbol, Var (pt.matches [0])));
     default:
       writeln (`> TODO: `, pt.name);
       assert (0);

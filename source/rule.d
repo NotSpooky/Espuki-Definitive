@@ -93,9 +93,13 @@ MatchScores score (in Node [] toMatch, in Rule rule, size_t rulePos) {
       (TypeId type) {
         if (type == Any) {
           return MatchType.anyTypeMatch;
+        } else if (type.isFunction()) {
+          assert (0, `TODO: match with function`);
+        } else {
+          return type == toMatch [i]
+            .match!(a => type) ? MatchType.exactTypeMatch : MatchType.noMatch;
+          // TODO: Derived type match.
         }
-        return type == toMatch [i].match!(a => type) ? MatchType.exactTypeMatch : MatchType.noMatch;
-        // TODO: Derived type match.
       },
       (string symbol) {
       	return toMatch [i].match!(

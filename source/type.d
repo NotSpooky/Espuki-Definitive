@@ -90,6 +90,7 @@ TypeId F32;
 TypeId F64;
 TypeId TupleT;
 TypeId EmptyArray;
+TypeId Code;
 
 // Can be directly instanced for primitive types.
 class TypeInfo_ {
@@ -165,7 +166,7 @@ struct ParametrizedKind {
   TypeId instance (const Value [] args /*, size_t size*/) {
     // Args should have the Kind's expected types.
     if (
-      zip(StoppingPolicy.requireSameLength, args.map!`a.type`, argTypes)
+      zip (StoppingPolicy.requireSameLength, args.map!`a.type`, argTypes)
         .map! (a => a[0].isSubTypeOf (a[1]))
         .all ()
     ) {
@@ -191,10 +192,11 @@ ParametrizedKind * addParametrizedKind (string baseName, TypeId [] argTypes) {
   return &globalParametrizedKinds [$-1];
 }
 
-ParametrizedKind* ArrayKind;
+ParametrizedKind * ArrayKind;
 // For `a to b` expressions.
-ParametrizedKind* MappingKind;
-ParametrizedKind* AAKind;
+ParametrizedKind * MappingKind;
+ParametrizedKind * AAKind;
+ParametrizedKind * FunctionKind;
 
 auto arrayOf (TypeId type) {
   // TODO: Check size.
@@ -205,6 +207,10 @@ auto associativeArrayOf (TypeId keyType, TypeId valueType) {
   return AAKind.instance (
     [Value (Kind, Var (keyType)), Value (Kind, Var (valueType))]
   );
+}
+
+auto isFunction (TypeId type) {
+  return type.isParametrizedFrom (FunctionKind);
 }
 
 TypeId getElementParameter (TypeId type, size_t index) {
@@ -257,6 +263,7 @@ shared static this () {
   F64 = addPrimitive (`F64`);
   TupleT = addPrimitive (`Tuple`);
   EmptyArray = addPrimitive (`EmptyArray`);
+  Code = addPrimitive (`Code`);
 
   /+
   // Implicit conversions:
@@ -270,4 +277,5 @@ shared static this () {
   ArrayKind = addParametrizedKind ("Array", [Kind]);
   MappingKind = addParametrizedKind ("Mapping", [Kind, Kind]);
   AAKind = addParametrizedKind ("AssociativeArray", [Kind, Kind]);
+  FunctionKind = addParametrizedKind ("Function", [arrayOf (Kind), Kind]);
 }

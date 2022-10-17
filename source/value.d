@@ -1,9 +1,11 @@
 module value;
 
+import std.algorithm;
 import std.sumtype;
 import std.conv : to;
 import rule;
 import type;
+import pegged.grammar : ParseTree;
 debug import std.stdio;
 
 struct StructType {
@@ -29,13 +31,22 @@ alias Var = SumType! (
   , Expression [] * /* Was Expressions */
   , StructType
   , EspukiAA
+  , ParseTree []
 );
 
 // To prevent toHash errors.
 struct VarWrapper {
   Var var;
   size_t toHash () const nothrow {
-    return var.match! (a => a.hashOf ());
+    return var.match! (
+      (a) {
+        try {
+          return a.hashOf ();
+        } catch (Exception) {
+          assert (0);
+        }
+      }
+    );
   }
   this (Var val) {
     this.var = val;

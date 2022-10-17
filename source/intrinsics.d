@@ -58,8 +58,8 @@ InterpretedValue arrayPos (
   return InterpretedValue (
     elementType
     , inputs [0]
-      .extractVar
-      .tryMatch!((Value [] asArray) => asArray)
+      .extractVar ()
+      .tryMatch! ((Value [] asArray) => asArray)
       [inputs [2].extractVar.tryMatch!((long l) => l)]
       .extractVar
   );
@@ -77,6 +77,26 @@ InterpretedValue aaGet (
       .extractVar
       .tryMatch! ((const EspukiAA aa) => aa.val)
       [VarWrapper (inputs [2].extractVar)]
+  );
+}
+
+InterpretedValue intSum (
+  ref InterpretedValue [] inputs
+  , ref RuleMatcher ruleMatcher
+) {
+  assert (inputs.length == 3);
+  assert (inputs [0].type == I64);
+  assert (inputs [2].type == I64);
+  return InterpretedValue (
+    I64
+    , Var (
+        inputs [0]
+        .extractVar ()
+        .tryMatch! ((long l) => l)
+        + inputs [2]
+        .extractVar ()
+        .tryMatch! ((long l) => l)
+      )
   );
 }
 
@@ -98,5 +118,10 @@ shared static this () {
     [RuleParam (AAKind), RuleParam (`get`), RuleParam (Any)]
     , toDelegate (&aaGet)
   );
-  globalRules = [espukiTo, createAAR, arrayPosIdx, aaGet];
+  auto intAdd = Rule (
+    [RuleParam (I64), RuleParam (`+`), RuleParam (I64)]
+    , toDelegate (&intSum)
+  );
+
+  globalRules = [espukiTo, createAAR, arrayPosIdx, aaGet, intAdd];
 }
