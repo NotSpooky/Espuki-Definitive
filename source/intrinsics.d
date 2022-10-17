@@ -100,6 +100,18 @@ InterpretedValue intSum (
   );
 }
 
+InterpretedValue callParameterlessFunction (
+  ref InterpretedValue [] inputs
+  , ref RuleMatcher ruleMatcher
+) {
+  assert (inputs.length == 2);
+  assert (inputs [0].type == ParameterlessFunction);
+  assert (0, `TODO: Call the provided function`);
+  /*return InterpretedValue (
+    I64, Var (777)
+  );*/
+}
+
 shared static this () {
   // TODO: Make generic
   auto espukiTo = Rule (
@@ -122,6 +134,10 @@ shared static this () {
     [RuleParam (I64), RuleParam (`+`), RuleParam (I64)]
     , toDelegate (&intSum)
   );
+  auto callParameterless = Rule (
+    [RuleParam (`call`), RuleParam (ParameterlessFunction)]
+    , toDelegate (&callParameterlessFunction)
+  );
 
-  globalRules = [espukiTo, createAAR, arrayPosIdx, aaGet, intAdd];
+  globalRules = [espukiTo, createAAR, arrayPosIdx, aaGet, intAdd, callParameterless];
 }

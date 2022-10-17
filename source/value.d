@@ -5,8 +5,13 @@ import std.sumtype;
 import std.conv : to;
 import rule;
 import type;
-import pegged.grammar : ParseTree;
 debug import std.stdio;
+
+struct FunctionTree {
+  import pegged.grammar : ParseTree;
+  ParseTree parseTree;
+  uint argumentsLength;
+}
 
 struct StructType {
   size_t [TypeId] offsets;
@@ -31,7 +36,7 @@ alias Var = SumType! (
   , Expression [] * /* Was Expressions */
   , StructType
   , EspukiAA
-  , ParseTree []
+  , FunctionTree
 );
 
 // To prevent toHash errors.

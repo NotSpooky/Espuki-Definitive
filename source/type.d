@@ -91,6 +91,7 @@ TypeId F64;
 TypeId TupleT;
 TypeId EmptyArray;
 TypeId Code;
+TypeId ParameterlessFunction;
 
 // Can be directly instanced for primitive types.
 class TypeInfo_ {
@@ -198,6 +199,7 @@ ParametrizedKind * MappingKind;
 ParametrizedKind * AAKind;
 ParametrizedKind * FunctionKind;
 
+
 auto arrayOf (TypeId type) {
   // TODO: Check size.
   return ArrayKind.instance ([Value (Kind, Var (type))]);
@@ -207,6 +209,13 @@ auto associativeArrayOf (TypeId keyType, TypeId valueType) {
   return AAKind.instance (
     [Value (Kind, Var (keyType)), Value (Kind, Var (valueType))]
   );
+}
+
+auto functionOf (TypeId [] types, TypeId returnType) {
+  return FunctionKind.instance ([
+    Value (arrayOf(Kind), Var (types.map! (type => Var (type)).array))
+    , Value (Kind, Var (returnType))
+  ]);
 }
 
 auto isFunction (TypeId type) {
@@ -278,4 +287,7 @@ shared static this () {
   MappingKind = addParametrizedKind ("Mapping", [Kind, Kind]);
   AAKind = addParametrizedKind ("AssociativeArray", [Kind, Kind]);
   FunctionKind = addParametrizedKind ("Function", [arrayOf (Kind), Kind]);
+
+  // This requires FunctionKind to exist.
+  ParameterlessFunction = functionOf ([], I64);
 }
