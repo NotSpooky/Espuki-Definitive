@@ -94,6 +94,7 @@ MatchScores score (in Node [] toMatch, in Rule rule, size_t rulePos) {
         if (type == Any) {
           return MatchType.anyTypeMatch;
         } else if (type.isFunction()) {
+          writeln (`Matching param of type `, type, ` with `, toMatch[i].tryMatch! (a => a.type));
           assert (0, `TODO: match with function`);
         } else {
           return type == toMatch [i]

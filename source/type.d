@@ -229,6 +229,10 @@ TypeId getElementParameter (TypeId type, size_t index) {
   return argType.extractVar ().tryMatch! ((TypeId t) => t);
 }
 
+TypeId functionReturnType (TypeId type) {
+  return type.getElementParameter (1);
+}
+
 TypeId arrayElementType (TypeId arrayType) {
   // Type must be an array.
   return getElementParameter (arrayType, 0);

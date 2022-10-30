@@ -1,12 +1,11 @@
-module lambdagraph;
-
-import value : FunctionTree, InterpretedValue, Var;
+import value;
 import type;
 import graph;
 import std.algorithm;
 import std.array;
 import std.conv;
-import pegged.grammar : ParseTree;
+import pegged.grammar;
+import value: FunctionTree;
 
 Node createLambda (ParseTree [] lambdaTree) {
   // Doing this in O(n) would probably be slower.
@@ -26,7 +25,6 @@ Node createLambda (ParseTree [] lambdaTree) {
       ));
     }
   }
-  assert (lambdaTree.length == 1);
   return Node (InterpretedValue (
     Code, Var (FunctionTree (lambdaTree [0], last))
   ));
