@@ -22,7 +22,8 @@ void main (string [] args) {
   // TODO: Spacing.
   mixin(grammar(`
     Program:
-      Program <- (Expressions :Spacing :';'? :Spacing)*
+      Program <- NonEmptyProgram / eps
+      NonEmptyProgram <- :Spacing (Expressions :Spacing ExpressionsEnd? :Spacing)*
       Expressions < Expression+
       Expression < Assignment
                    / Lambda
@@ -52,6 +53,7 @@ void main (string [] args) {
       SingleSpacing <- :(' ' / '\t' / '\r' / '\n' / '\r\n' / Comment )
       Spacing <- :(SingleSpacing)*
       Symbol <- identifier / '+' / '-' / '/' / '*'
+      ExpressionsEnd <- '.' / ';'
   `));
   if (args.length <= 1) {
     stderr.writeln (`Error: No filename specified.`);
@@ -75,9 +77,9 @@ void main (string [] args) {
     //`{5.1 /* Sleep :3 */ _34}; /+ Hello +/`
     ;+/
   auto parseTree = Program.Program(toParse);
+  //toHTML(parseTree, File(`parsetree.html`, `w`));
   assert (parseTree.successful, `Parsing error`);
   assert (parseTree.end == toParse.length, "Couldn't parse program at:\n" ~ toParse [parseTree.end .. $]);
-  //toHTML(parseTree, File(`spooks.html`, `w`));
   auto decimatedTree = Program.decimateTree (parseTree);
   //writeln (decimatedTree);
   writeln (`Last result: `, parseProgram (decimatedTree, ruleMatcher, globalRules));
@@ -86,11 +88,24 @@ void main (string [] args) {
 Node parseProgram (ParseTree pt, ref RuleMatcher ruleMatcher, Rule [] rules) {
   switch (pt.name) {
     case `Program.Program`:
-      Node lastResult = Node.init;
+      if (pt.children.empty) {
+        return Node (InterpretedValue (None, Var ()));
+      }
+      assert (pt.children.length == 1);
+      return parseProgram(pt.children [0], ruleMatcher, rules);
+    case `Program.NonEmptyProgram`:
+      Node lastResult = Node (InterpretedValue (None,  Var ()));
       writeln (`DEBUG: Parsed program: `, pt.children);
-      foreach (expressionChain; pt.children) {
-        writeln (`> DEBUG: Subexpression chain: `, expressionChain);
-        lastResult = parseProgram (expressionChain, ruleMatcher, rules);
+      foreach (childNode; pt.children) {
+        if (childNode.name == `Program.ExpressionsEnd`) {
+          if (childNode.matches [0] == `;`) {
+            lastResult = Node (InterpretedValue (None, Var ()));
+          }
+        } else {
+          assert (childNode.name == `Program.Expressions`, `Got childNode of ` ~ childNode.name);
+          writeln (`> DEBUG: Subexpression chain: `, childNode);
+          lastResult = parseProgram (childNode, ruleMatcher, rules);
+        }
       }
       return lastResult;
     case `Program.Expressions`:

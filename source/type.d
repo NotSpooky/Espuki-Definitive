@@ -80,6 +80,8 @@ TypeId Any;    // Contains whatever.
 TypeId Kind;   // A Type of Type.
 TypeId Symbol; // A single word in the program, can be resolved as an identifier.
                // Can also be matched as-is.
+TypeId None;   // Represents no result, such as in an empty program, or the return
+               // value from an expression ending with ';'.
 TypeId String;
 TypeId Bool;
 TypeId I8;
@@ -266,6 +268,7 @@ shared static this () {
   Any = addPrimitive (`Any`);
   Kind = addPrimitive (`Kind`);
   Symbol = addPrimitive (`Symbol`);
+  None = addPrimitive (`None`);
   String = addPrimitive (`String`);
   Bool = addPrimitive (`Bool`);
   I8 = addPrimitive (`I8`);
