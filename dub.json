@@ -7,8 +7,17 @@
 	"license": "BSD-2",
 	"name": "espuki",
   "dependencies": {
-    "pegged": "~>0.4.6",
-    "pegged:numbers": "~>0.4.6",
-    "pegged:strings": "~>0.4.6" 
+    "pegged":  {
+      "repository": "git+https://github.com/PhilippeSigaud/Pegged.git",
+      "version": "master"
+    },
+    "pegged:strings": {
+      "repository": "git+https://github.com/PhilippeSigaud/Pegged.git",
+      "version": "*"
+    },
+    "pegged:numbers": {
+      "repository": "git+https://github.com/PhilippeSigaud/Pegged.git",
+      "version": "*"
+    }
   }
 }
