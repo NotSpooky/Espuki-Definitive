@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <title>Iris IDE</title>
+    <style>
+      #editor {
+        
+      }
+      .node {
+        position: absolute;
+        border-radius: 10px;
+        border: 1px solid #000;
+        padding-top: 20px;
+        padding-left: 2px;
+        padding-right: 2px;
+        padding-bottom: 10px;
+        background-color: cyan;
+        display: inline-block;
+      }
+      .node div {
+        width: 100%;
+        height: 100%;
+        background-color: white;
+        display: inline-block;
+      }
+
+      .node div textarea {
+        width: 200px;
+        height: 100px;
+      }
+
+      .node div p {
+        width: 100%;
+        height: 100%;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Iris IDE</h1>
+    <button id="run">Run</button>
+    <button id="save">Save</button>
+    <button id="createNode">Create Node</button>
+    <div id="editor"></div>
+    <script>
+      // Simple cyan circle image to represent the node
+      const img = document.createElement('img');
+      // Create it from a canvas
+      const canvas = document.createElement('canvas');
+      canvas.width = 20;
+      canvas.height = 20;
+      const ctx = canvas.getContext('2d');
+      ctx.fillStyle = 'cyan';
+      ctx.beginPath();
+      ctx.arc(10, 10, 10, 0, 2 * Math.PI);
+      ctx.fill();
+      img.src = canvas.toDataURL();
+
+      const editor = document.getElementById('editor');
+      // Fill the remaining height
+      editor.style.height = (window.innerHeight - editor.offsetTop) + 'px';
+
+      let currentNode = null;
+
+      function getTextArea(node) {
+        return node.querySelector('textarea');
+      }
+
+      function getParagraph(node) {
+        return node.querySelector('p');
+      }
+
+      function createNode(posX = 100, posY = 200) {
+        // Create a draggable div with a text area inside
+        const node = document.createElement('div');
+        // Set the node's class
+        node.className = 'node';
+
+        const wrapperDiv = document.createElement('div');
+
+        // Create a text area inside the div
+        const textarea = document.createElement('textarea');
+
+        // Make the node draggable, it will stay where you drop it
+        node.draggable = true;
+        // Remove the drag and drop ghost image, but perform the other drag and drop actions
+        node.ondragstart = (e) => {
+          e.dataTransfer.setDragImage(img, 0, 0);
+        };
+
+        node.addEventListener('dragend', function(e) {
+          node.style.position = 'absolute';
+          node.style.left = e.clientX + 'px';
+          node.style.top = e.clientY + 'px';
+        });
+
+        // Show the drag cursor when hovering over the node
+        // But avoid showing it when hovering over any of the node's children
+        node.addEventListener('dragover', function(e) {
+          if (e.target === node) {
+            node.style.cursor = 'move';
+          }
+          e.preventDefault();
+        });
+
+        wrapperDiv.appendChild(textarea);
+        node.appendChild(wrapperDiv);
+        
+        // Add the node to the page
+        document.getElementById('editor').appendChild(node);
+
+        // Set the node's position
+        node.style.left = posX + 'px';
+        node.style.top = posY + 'px';
+
+        // Update the node size when the text area is resized with the mouse
+        // but not when adding text
+        textarea.addEventListener('input', function(e) {
+          // TODO
+        });
+
+        selectNode(node);
+        return node;
+      }
+
+      document.getElementById('createNode').addEventListener('click', function(event) {
+        createNode();
+      });
+
+      // Also create a node when double clicking the editor element
+      editor.addEventListener('dblclick', function(event) {
+        createNode(event.clientX, event.clientY);
+      });
+
+      function deselectNode() {
+        if (!currentNode) {
+          return;
+        }
+
+        const p = document.createElement('p');
+        const textArea = getTextArea(currentNode);
+        if (textArea.value.trim() === '') {
+          currentNode.remove();
+          return;
+        }
+        p.innerHTML = textArea.value;
+        // Set the paragraph's size to the text area's size
+        p.style.width = textArea.style.width;
+        p.style.height = textArea.style.height;
+        // Replace the text area with the paragraph
+        textArea.replaceWith(p);
+        currentNode.style.background = 'cyan';
+        // If the node's text is only whitespace, remove it
+        currentNode = null;
+      }
+
+      function selectNode(node) {
+        if (currentNode) {
+          deselectNode(currentNode);
+        }
+
+        node.style.background = 'blue';
+        currentNode = node;
+
+        const paragraph = node.querySelector('p');
+
+        const textArea = document.createElement('textarea');
+        let text = "";
+        if (paragraph) {
+          text = paragraph.innerText;
+          paragraph.replaceWith(textArea);
+        }
+
+        // Set the text area's value to the paragraph's text
+        textArea.value = text;
+
+        textArea.focus();
+      }
+
+      // Call deselectNode when pressing escape
+      document.addEventListener('keydown', function(event) {
+        if (event.key === 'Escape') {
+          deselectNode();
+        }
+      });
+
+      editor.addEventListener('click', function(e) {
+        if (e.target === editor && currentNode) {
+          const node = currentNode;
+          deselectNode();
+          // When clicking the paragraph, replace it with the text area
+          node.addEventListener('click', function(e) {
+            // Find the element with class node in the parent chain
+            const closestNode = e.target.closest('.node');
+            // If the target is a paragraph element
+            let range = null;
+            if (e.target.tagName === 'P') {
+              // Get the text position being clicked on
+              range = document.caretPositionFromPoint(e.clientX, e.clientY);
+            }
+            selectNode(closestNode);
+            const textArea = getTextArea(node);
+            if (range) {
+              textArea.setSelectionRange(range.offset, range.offset);
+            }
+            // Remove the event listener
+            node.removeEventListener('click', arguments.callee);
+          });
+          deselectNode();
+        }
+      });
+    </script>
+  </body>
+</html>
