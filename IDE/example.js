@@ -32,11 +32,18 @@ const addRule = {
   dependencies: []
 };
 
-let result = {
+let firstResult = {
   type: Types.I32,
   isInterpreted: true,
   interpretedData: Pending,
   dependencies: [addRule, valA, valB]
+};
+
+let secondResult = {
+  type: Types.I32,
+  isInterpreted: true,
+  interpretedData: Pending,
+  dependencies: [addRule, firstResult, valB]
 };
 
 function interpret(value) {
@@ -51,7 +58,18 @@ function interpret(value) {
   return value;
 }
 
-interpret(result);
+// Test single operation.
+// interpret(firstResult);
+// console.log(JSON.stringify(firstResult, null, 2));
 
-console.log(JSON.stringify(result, null, 2));
+const queue = [firstResult, secondResult];
 
+while (queue.length > 0) {
+  const value = queue.shift();
+  if (value.interpretedData === Pending) {
+    interpret(value);
+  }
+}
+
+console.log(JSON.stringify(secondResult, null, 2));
+console.log(secondResult.interpretedData);
