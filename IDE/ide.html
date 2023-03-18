@@ -34,6 +34,12 @@
         width: 100%;
         height: 100%;
       }
+
+      .node .output {
+        background-color: lightgray;
+        width: 100%;
+        height: 20px;
+      }
     </style>
   </head>
   <body>
@@ -59,8 +65,20 @@
       const editor = document.getElementById('editor');
       // Fill the remaining height
       editor.style.height = (window.innerHeight - editor.offsetTop) + 'px';
+      // Automatically update the height when the window is resized
+      window.addEventListener('resize', () => {
+        editor.style.height = (window.innerHeight - editor.offsetTop) + 'px';
+      });
+
+      // Add an SVG container as the background of the editor
+      const svgBackground = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+      svgBackground.id = 'svgBackground';
+      svgBackground.setAttribute('width', '100%');
+      svgBackground.setAttribute('height', '100%');
+      editor.appendChild(svgBackground);
 
       let currentNode = null;
+      let currentConnection = null;
 
       function getTextArea(node) {
         return node.querySelector('textarea');
@@ -118,6 +136,51 @@
         textarea.addEventListener('input', function(e) {
           // TODO
         });
+
+        // Add a div at the bottom of the node
+        const div = document.createElement('div');
+        div.className = 'output';
+
+        // When the div is clicked, add a line from the bottom of the node
+        // to the mouse position
+        div.addEventListener('click', function(e) {
+          if (currentConnection) {
+            // Remove it
+            currentConnection.remove();
+            currentConnection = null;
+          }
+          // Use a SVG line to draw the line
+          const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+          line.setAttribute('x1', node.offsetLeft + node.offsetWidth / 2);
+          line.setAttribute('y1', node.offsetTop + node.offsetHeight - editor.offsetTop);
+          line.setAttribute('x2', e.clientX);
+          line.setAttribute('y2', e.clientY - editor.offsetTop);
+          line.setAttribute('stroke', 'black');
+          line.setAttribute('stroke-width', '2');
+          currentConnection = line;
+          svgBackground.appendChild(line);
+          // Make the end of the line follow the mouse
+          document.addEventListener('mousemove', function(e) {
+            line.setAttribute('x2', e.clientX);
+            line.setAttribute('y2', e.clientY - editor.offsetTop);
+            // Check whether the mouse is over another node
+            // Obtain the node that is under the mouse
+            const nodeUnderMouse = document.elementFromPoint(e.clientX, e.clientY);
+            // Check whether the node is a node
+            if (nodeUnderMouse && nodeUnderMouse.className === 'node') {
+              // Check whether the node is not the current node
+              if (nodeUnderMouse !== node) {
+                // Check whether the node is not already connected to the current node
+                //if (!nodeUnderMouse.isConnectedTo(node)) {
+                  // Highlight the node
+                  nodeUnderMouse.style.backgroundColor = 'lightgreen';
+                //}
+              }
+            }
+          });
+        });
+
+        node.appendChild(div);
 
         selectNode(node);
         return node;
@@ -185,29 +248,38 @@
       });
 
       editor.addEventListener('click', function(e) {
-        if (e.target === editor && currentNode) {
-          const node = currentNode;
-          deselectNode();
-          // When clicking the paragraph, replace it with the text area
-          node.addEventListener('click', function(e) {
-            // Find the element with class node in the parent chain
-            const closestNode = e.target.closest('.node');
-            // If the target is a paragraph element
-            let range = null;
-            if (e.target.tagName === 'P') {
-              // Get the text position being clicked on
-              range = document.caretPositionFromPoint(e.clientX, e.clientY);
-            }
-            selectNode(closestNode);
-            const textArea = getTextArea(node);
-            if (range) {
-              textArea.setSelectionRange(range.offset, range.offset);
-            }
-            // Remove the event listener
-            node.removeEventListener('click', arguments.callee);
-          });
+        const closestNode = e.target.closest('.node');
+
+        if ((closestNode !== currentNode) || !closestNode) {
           deselectNode();
         }
+
+        const closestOutput = e.target.closest('.output');
+
+        if (closestNode && !closestOutput) {
+          // Find the element with class node in the parent chain
+          // If the target is a paragraph element
+          let range = null;
+          if (e.target.tagName === 'P') {
+            // Get the text position being clicked on
+            if (document.caretPositionFromPoint) {
+              range = document.caretPositionFromPoint(e.clientX, e.clientY);
+              console.log(range.offset);
+            } else if (document.caretRangeFromPoint) {
+              range = document.caretRangeFromPoint(e.clientX, e.clientY);
+            }
+          }
+
+          // Needed because the node is unselected on selectNode,
+          // which removes the node
+          if (closestNode !== currentNode) {
+            selectNode(closestNode);
+          }
+          const textArea = getTextArea(closestNode);
+          if (range) {
+            textArea.setSelectionRange(range.offset, range.offset);
+          }
+        };
       });
     </script>
   </body>

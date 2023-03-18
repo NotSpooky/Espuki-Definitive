@@ -59,7 +59,7 @@ function outputNodesToExecuteOrder (outputNodes) {
             } else {
             //   3.2 If a dependency's end of lifetime is not in the list, add it
                 queued.add(dependency);
-                interpretNodes.unshift({
+                interpretNodes.push({
                     operation: Operations.endOfLifetime,
                     node: dependency
                 });
@@ -73,20 +73,23 @@ function outputNodesToExecuteOrder (outputNodes) {
     };
 }
 
-// Execute the interpret nodes in the order they are in the list
-const interpretNodes = outputNodesToExecuteOrder([example.secondResult]).interpretNodes;
-
-for (let node of interpretNodes) {
+function interpretFromOutputNodes (outputNodes) {
+  for (let node of outputNodes){
     //console.log(JSON.stringify(node));
     if (node.operation === Operations.execute) {
-        // TODO: set places for the results?
-        // Currently sets the result in the node like in example.js
-        if (node.node.interpretedData === example.Pending) {
-            example.interpret(node.node);
-        }
-        console.log("Executed: ", node.node.id);
+      // TODO: set places for the results?
+      // Currently sets the result in the node like in example.js
+      if (node.node.interpretedData === example.Pending) {
+        example.interpret(node.node);
+      }
+      console.log("Executed: ", node.node.id, ", resulting in ", node.node.interpretedData);
     } else {
-        assert.deepEqual(node.operation, Operations.endOfLifetime);
-        console.log("Ending lifetime of", node.id);
+      assert.deepEqual(node.operation, Operations.endOfLifetime);
+      console.log("Ending lifetime of", node.node.id);
     }
+  }
 }
+
+// Execute the interpret nodes in the order they are in the list
+const exampleInterpretNodes = outputNodesToExecuteOrder([example.secondResult]).interpretNodes;
+interpretFromOutputNodes(exampleInterpretNodes);
