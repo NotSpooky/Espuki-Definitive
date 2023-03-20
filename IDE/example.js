@@ -1,10 +1,10 @@
 const assert = require("./utilities.js").assert;
 
-const Types = new Set([
-  "I32 Function(I32, I32)",
-  "I32",
-  "LiteralInt"
-]);
+const Types = {
+  "I32 Function(I32, I32)": "I32 Function(I32, I32)",
+  "I32": "I32",
+  "LiteralInt": "LiteralInt",
+};
 
 // Pending is a symbol
 const Pending = Symbol();
@@ -29,7 +29,7 @@ const addRule = {
   id: 2,
   type: Types[`I32 Function(I32, I32)`],
   isInterpreted: true,
-  interpretedData: (a, b) => a.interpretedData + b.interpretedData,
+  interpretedData: (a, b) => (a + b) | 0,
   dependencies: []
 };
 
@@ -49,33 +49,13 @@ let secondResult = {
   dependencies: [addRule, firstResult, valB]
 };
 
-function interpret(value) {
-  assert.that(value.isInterpreted);
-  assert.deepEqual(value.interpretedData, Pending);
-  assert.that(value.dependencies.length > 0, "No rule to interpret");
-  const rule = value.dependencies[0];
-  const args = value.dependencies.slice(1);
-  const result = rule.interpretedData(...args);
-  value.interpretedData = result;
-  // console.log("Interpreted", value, "to", result);
-  return value;
-}
-
-// Test single operation.
-// interpret(firstResult);
-// console.log(JSON.stringify(firstResult, null, 2));
-
-// const queue = [firstResult, secondResult];
-
-// while (queue.length > 0) {
-//   const value = queue.shift();
-//   if (value.interpretedData === Pending) {
-//     interpret(value);
-//   }
-// }
-
-// console.log(JSON.stringify(secondResult, null, 2));
-// console.log(secondResult.interpretedData);
+const exampleDag = {
+  0: valA,
+  1: valB,
+  2: addRule,
+  3: firstResult,
+  4: secondResult,
+};
 
 module.exports = {
   Types,
@@ -85,5 +65,5 @@ module.exports = {
   addRule,
   firstResult,
   secondResult,
-  interpret
+  exampleDag,
 }
